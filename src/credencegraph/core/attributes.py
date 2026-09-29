@@ -7,8 +7,8 @@ from typing import Any
 
 from credencegraph.core.errors import ValidationError
 
+# A JSON value.
 type JSON = bool | int | float | str | list[JSON] | dict[str, JSON] | None
-"""A JSON value."""
 
 
 def copy_json(value: Any, path: str) -> Any:

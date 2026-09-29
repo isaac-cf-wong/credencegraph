@@ -15,14 +15,14 @@ REFUTES = "refutes"
 EQUIVALENT = "equivalent"
 EXCLUSIVE = "exclusive"
 
+# Inferential types that carry a strength.
 STRENGTH_TYPES = frozenset({REQUIRES, SUPPORTS, REFUTES})
-"""Inferential types that carry a strength."""
 
+# The fixed set of inferential relation types. Any other type string is an annotation.
 INFERENTIAL_TYPES = STRENGTH_TYPES | {EQUIVALENT, EXCLUSIVE}
-"""The fixed set of inferential relation types. Any other type string is an annotation."""
 
+# Types whose subgraph must stay acyclic.
 ACYCLIC_TYPES = STRENGTH_TYPES
-"""Types whose subgraph must stay acyclic."""
 
 
 def is_inferential(relation_type: str) -> bool:

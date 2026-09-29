@@ -156,8 +156,8 @@ class Beta:
         return cls.from_mean_concentration(m, ceiling / (s * s) - 1.0)
 
 
+# A credence: ``Beta`` or ``Point``. Anywhere one is accepted, a bare float ``p`` means ``Point(p)``.
 Credence = Beta | Point
-"""A credence: ``Beta`` or ``Point``. Anywhere one is accepted, a bare float ``p`` means ``Point(p)``."""
 
 
 def as_credence(value: Credence | float) -> Credence:
