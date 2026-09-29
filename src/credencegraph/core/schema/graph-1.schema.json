@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/isaac-cf-wong/credencegraph/main/src/credencegraph/core/schema/graph-1.schema.json",
+  "title": "credencegraph graph, format version 1",
+  "description": "Structure and types of a credencegraph document. Unique ids, relations naming existing nodes, and acyclicity of the requires/supports/refutes subgraph are checked when the document is loaded and are not expressible here.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version", "nodes", "relations"],
+  "properties": {
+    "format": { "const": "credencegraph" },
+    "version": { "const": 1 },
+    "nodes": { "type": "array", "items": { "$ref": "#/$defs/node" } },
+    "relations": { "type": "array", "items": { "$ref": "#/$defs/relation" } }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1 },
+    "point": { "type": "number", "minimum": 0, "maximum": 1 },
+    "beta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["alpha", "beta"],
+      "properties": {
+        "alpha": { "type": "number", "exclusiveMinimum": 0 },
+        "beta": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "credence": { "oneOf": [{ "$ref": "#/$defs/point" }, { "$ref": "#/$defs/beta" }] },
+    "attributes": { "type": "object" },
+    "anchor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["document"],
+      "properties": {
+        "document": { "type": "string", "minLength": 1 },
+        "locator": { "type": ["string", "null"], "minLength": 1 },
+        "quote": { "type": ["string", "null"], "minLength": 1 },
+        "digest": { "type": ["string", "null"], "minLength": 1 }
+      }
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "kind": { "type": "string", "minLength": 1 },
+        "statement": { "type": ["string", "null"], "minLength": 1 },
+        "sources": { "type": "array", "items": { "$ref": "#/$defs/anchor" } },
+        "base": { "oneOf": [{ "$ref": "#/$defs/credence" }, { "type": "null" }] },
+        "stated": { "oneOf": [{ "$ref": "#/$defs/credence" }, { "type": "null" }] },
+        "attributes": { "$ref": "#/$defs/attributes" }
+      }
+    },
+    "relation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "source", "target"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "type": { "type": "string", "minLength": 1 },
+        "source": { "$ref": "#/$defs/id" },
+        "target": { "$ref": "#/$defs/id" },
+        "strength": { "oneOf": [{ "$ref": "#/$defs/credence" }, { "type": "null" }] },
+        "attributes": { "$ref": "#/$defs/attributes" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "enum": ["requires", "supports", "refutes"] } } },
+          "then": { "required": ["strength"], "properties": { "strength": { "$ref": "#/$defs/credence" } } },
+          "else": { "properties": { "strength": { "type": "null" } } }
+        }
+      ]
+    }
+  }
+}
