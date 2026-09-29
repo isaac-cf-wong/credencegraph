@@ -27,8 +27,8 @@ states. Relations are either **inferential** (`requires`, `supports`, `refutes`,
 inference. The engine has no built-in notion of authors, projects, or workflow;
 those are expressible as ordinary nodes and annotation relations.
 
-> **Status: experimental.** The package is under active development and stays
-> on 0.x. Any minor release may change the API.
+> **Status: experimental.** The package is under active development and stays on
+> 0.x. Any minor release may change the API.
 
 ## Installation
 
