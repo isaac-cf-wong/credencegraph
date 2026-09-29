@@ -9,4 +9,5 @@ until 1.0, any minor release may change it.
 
 ## Main Sections
 
+- **[Core](core)** – Graph, nodes, relations, credences and JSON I/O.
 - **[Utility](utils)** – Utility functions.

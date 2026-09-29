@@ -48,6 +48,7 @@ nav = [
   { "Get Started" = "index.md" },
   { "API" = [
     { "Overview" = "api/index.md" },
+    { "Core" = "api/core/index.md" },
     { "Utility" = [
       { "Overview" = "api/utils/index.md" },
       { "Logging" = "api/utils/log.md" },
