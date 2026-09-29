@@ -1,24 +1,43 @@
-# Python Project Template
+# credencegraph
 
-[![Python CI](https://github.com/isaac-cf-wong/python-package-template/actions/workflows/ci.yml/badge.svg)](https://github.com/isaac-cf-wong/python-package-template/actions/workflows/ci.yml)
-[![pre-commit.ci status](https://results.pre-commit.ci/badge/github/isaac-cf-wong/python-package-template/main.svg)](https://results.pre-commit.ci/latest/github/isaac-cf-wong/python-package-template/main)
-[![Documentation Status](https://github.com/isaac-cf-wong/python-package-template/actions/workflows/documentation.yml/badge.svg)](https://isaac-cf-wong.github.io/python-package-template/)
-[![codecov](https://codecov.io/gh/isaac-cf-wong/python-package-template/graph/badge.svg?token=COF8341N60)](https://codecov.io/gh/isaac-cf-wong/python-package-template)
-[![PyPI Version](https://img.shields.io/pypi/v/package-name-placeholder)](https://pypi.org/project/package-name-placeholder/)
-[![Python Versions](https://img.shields.io/pypi/pyversions/package-name-placeholder)](https://pypi.org/project/package-name-placeholder/)
+[![Python CI](https://github.com/isaac-cf-wong/credencegraph/actions/workflows/ci.yml/badge.svg)](https://github.com/isaac-cf-wong/credencegraph/actions/workflows/ci.yml)
+[![pre-commit.ci status](https://results.pre-commit.ci/badge/github/isaac-cf-wong/credencegraph/main.svg)](https://results.pre-commit.ci/latest/github/isaac-cf-wong/credencegraph/main)
+[![Documentation Status](https://github.com/isaac-cf-wong/credencegraph/actions/workflows/documentation.yml/badge.svg)](https://isaac-cf-wong.github.io/credencegraph/)
+[![codecov](https://codecov.io/gh/isaac-cf-wong/credencegraph/graph/badge.svg)](https://codecov.io/gh/isaac-cf-wong/credencegraph)
+[![PyPI Version](https://img.shields.io/pypi/v/credencegraph)](https://pypi.org/project/credencegraph/)
+[![Python Versions](https://img.shields.io/pypi/pyversions/credencegraph)](https://pypi.org/project/credencegraph/)
 [![License](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](LICENSE)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
-[![DOI](https://zenodo.org/badge/924023559.svg)](https://doi.org/10.5281/zenodo.18017404)
 [![SPEC 0 — Minimum Supported Dependencies](https://img.shields.io/badge/SPEC-0-green?labelColor=%23004811&color=%235CA038)](https://scientific-python.org/specs/spec-0000/)
 
-This project is a template for creating Python packages with a standardized
-structure and configuration. It includes the configurations for various
-development tools such as linters, formatters, type checkers, and test runners.
+**credencegraph is a neutral engine for graphs of propositions with credences.**
 
-## Getting started
+Scientific statements are rarely certain. Instead of proving a statement,
+credencegraph records how strongly each proposition is believed _given_ the
+propositions it rests on, and computes what follows:
 
-Use **Use this template** on GitHub, then read
-[`docs/template_documentation/`](docs/template_documentation/) — onboarding,
-user guide, and development notes in one place. Delete that directory and the
-**Template documentation** `nav` block in `zensical.toml` when you no longer
-need them. Develop your library under `src/`.
+- the credence of any proposition, conjunction, or conditional query;
+- how that credence changes when a premise is assumed true, false, or wrong;
+- which premises and links a conclusion depends on most — its **weak points**.
+
+Each node keeps the original text it came from alongside the proposition it
+states. Relations are either **inferential** (`requires`, `supports`, `refutes`,
+`equivalent`, `exclusive`), with a fixed probabilistic meaning, or
+**annotations** (any other type), which are stored and queried but ignored by
+inference. The engine has no built-in notion of authors, projects, or workflow;
+those are expressible as ordinary nodes and annotation relations.
+
+> **Status: experimental.** The package is under active development and stays
+> on 0.x. Any minor release may change the API.
+
+## Installation
+
+```bash
+pip install credencegraph
+```
+
+Requires Python 3.13+.
+
+## License
+
+BSD 3-Clause. See [LICENSE](LICENSE).

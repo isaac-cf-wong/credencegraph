@@ -1,6 +1,6 @@
 cff-version: 1.2.0
 title:
-    'python-package-template: A GitHub template repository for a Python package'
+    'credencegraph: A neutral engine for graphs of propositions with credences'
 license: 'BSD'
 type: software
 authors:
@@ -10,5 +10,7 @@ authors:
       orcid: 'https://orcid.org/0000-0003-2166-0027'
 keywords:
     - python
-    - github
-    - template
+    - bayesian-network
+    - argumentation
+    - uncertainty
+    - knowledge-graph

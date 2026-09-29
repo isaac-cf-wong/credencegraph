@@ -1,19 +1,12 @@
 ---
 title: API Reference
-description: Complete reference for the python package template.
+description: Reference for the credencegraph public API.
 icon: material/api
 ---
 
-This section documents the public API of the python package template.
-
-<!-- prettier-ignore-start -->
-
-!!!notes
-    The pages only serve for demonstration purposes.
-
-<!-- prettier-ignore-end -->
+This section documents the public API of credencegraph. The API is experimental:
+until 1.0, any minor release may change it.
 
 ## Main Sections
 
-- **[Hello World](hello_world)** – Hello world functions.
 - **[Utility](utils)** – Utility functions.

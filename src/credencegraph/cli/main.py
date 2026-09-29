@@ -1,5 +1,5 @@
 # ruff: noqa PL0415
-"""Main entry point for the python_package_template CLI application."""
+"""Main entry point for the credencegraph CLI application."""
 
 from __future__ import annotations
 
@@ -22,8 +22,8 @@ class LoggingLevel(str, enum.Enum):
 
 # Create the main Typer app
 app = typer.Typer(
-    name="package_name",
-    help="Main CLI for package_name.",
+    name="credencegraph",
+    help="Build and query graphs of propositions with credences.",
     rich_markup_mode="rich",
 )
 
@@ -39,7 +39,7 @@ def setup_logging(level: LoggingLevel = LoggingLevel.INFO) -> None:
     from rich.console import Console
     from rich.logging import RichHandler
 
-    logger = logging.getLogger("python_package_template")
+    logger = logging.getLogger("credencegraph")
 
     logger.setLevel(level.value)
 
@@ -84,9 +84,9 @@ def main(
 
 def register_commands() -> None:
     """Register CLI commands."""
-    from python_package_template.cli.hello import hello_command
+    from credencegraph.cli.version import version_command
 
-    app.command(name="hello")(hello_command)
+    app.command(name="version")(version_command)
 
 
 register_commands()
