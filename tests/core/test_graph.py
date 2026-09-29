@@ -74,12 +74,12 @@ class TestWrites:
 
     def test_equality_ignores_order(self):
         """Test that graphs compare by content."""
-        g1 = build("a", "b")
-        g2 = build("b", "a")
-        assert g1 == g2
-        g1.add_relation(rel("r", "cites", "a", "b"))
-        assert g1 != g2
-        assert g1 != "graph"
+        assert build("a", "b") == build("b", "a")
+        with_relation = build("a", "b")
+        with_relation.add_relation(rel("r", "cites", "a", "b"))
+        assert with_relation != build("b", "a")
+        assert build("a") != build("b")
+        assert build("a") != "graph"
 
 
 class TestCycles:
