@@ -18,7 +18,9 @@ class Answer:
     Attributes:
         point: The point answer: the probability with every parameter at its credence mean. Because
             the network is multilinear in its independent parameters, this equals the predictive
-            probability averaged over the parameters' distributions.
+            ratio ``E[P(A, E)] / E[P(E)]``, where each expectation is taken over the parameters'
+            distributions and the ``exclusive`` constraints count as evidence on both sides. It is
+            not the average of ``P(A | E)`` over the parameters, which generally differs.
     """
 
     point: float

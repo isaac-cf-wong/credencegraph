@@ -33,9 +33,11 @@ refuter is active; with no parents it is the prior.
   credence.
 
 A compiled network holds every parameter at its credence mean. Because each
-parameter enters the joint distribution with degree at most one, answers at the
-means are the predictive answers averaged over independent parameter
-distributions.
+parameter enters the joint distribution with degree at most one, the answer at
+the means is the predictive ratio $E[P(A, E)] / E[P(E)]$, where both
+expectations are taken over independent parameter distributions and the
+`exclusive` constraints count as evidence on both sides. This is not the average
+of $P(A \mid E)$ over the parameters, which generally differs.
 
 <!-- prettier-ignore-start -->
 
