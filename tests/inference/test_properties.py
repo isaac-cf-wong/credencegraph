@@ -6,7 +6,7 @@ import itertools
 
 import numpy as np
 from _graphs import proposition_ids, random_assignment, random_graph
-from hypothesis import assume, given, settings
+from hypothesis import assume, given, reject, settings
 from hypothesis import strategies as st
 
 from credencegraph.core import ValidationError
@@ -55,8 +55,9 @@ def test_complements_sum_to_one(seed):
             for values in itertools.product([False, True], repeat=len(targets))
         )
     except ZeroProbabilityError:
-        assume(False)
-    np.testing.assert_allclose(total, 1.0, rtol=1e-12, atol=0.0)
+        reject()
+    else:
+        np.testing.assert_allclose(total, 1.0, rtol=1e-12, atol=0.0)
 
 
 def _corners(network, keys, lows, highs):
@@ -162,6 +163,7 @@ def test_intervening_on_a_root_equals_conditioning(seed, value):
     try:
         conditioned = conditional(network, target, {**evidence, root_id: value}, engine=ENGINE).point
     except ZeroProbabilityError:
-        assume(False)
-    intervened = intervene(network, target, {root_id: value}, given=evidence, engine=ENGINE).point
-    np.testing.assert_allclose(intervened, conditioned, rtol=1e-12, atol=0.0)
+        reject()
+    else:
+        intervened = intervene(network, target, {root_id: value}, given=evidence, engine=ENGINE).point
+        np.testing.assert_allclose(intervened, conditioned, rtol=1e-12, atol=0.0)
