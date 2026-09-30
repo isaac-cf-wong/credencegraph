@@ -112,7 +112,8 @@ def test_joint_probability_is_multilinear(seed):
     averaged = sum(w * ENGINE.probability(net, assignment) for w, net in _corners(network, chosen, lows, highs))
     at_means = ENGINE.probability(network.with_parameters(means), assignment)
     # Tight enough to catch a nonlinearity of order 1e-10 in a table entry. Measured roundoff on
-    # 20000 seeds: at most 4.4e-16 absolute and 3.7e-14 relative, about 1% of this bound.
+    # seeds 0-19999: at most 4.4e-16 absolute (44% of atol alone) and 3.7e-14 relative; the worst
+    # case uses 0.99% of the combined allowance atol + rtol * |at_means|.
     np.testing.assert_allclose(averaged, at_means, rtol=1e-12, atol=1e-15)
 
 
@@ -142,7 +143,8 @@ def test_point_answer_is_the_predictive_probability(seed):
         {name[target_index].name: bool(target_value)},
         {name[i].name: bool(v) for i, v in evidence.items()},
     ).point
-    # Measured roundoff on 20000 seeds: at most 5.6e-16 absolute and 1.3e-14 relative.
+    # Measured roundoff on seeds 0-19999 (19727 pass the filter): at most 5.6e-16 absolute (56% of
+    # atol alone) and 1.3e-14 relative; the worst case uses 0.62% of atol + rtol * |point|.
     np.testing.assert_allclose(numerator / denominator, point, rtol=1e-12, atol=1e-15)
 
 
