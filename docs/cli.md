@@ -106,11 +106,27 @@ the `path`, the `nodes` and `relations` counts and the `warnings`. A passing
 `check` prints `{"command", "path", "nodes", "relations", "warnings"}`, where
 the warnings are the unanchored variables, which do not fail the check.
 
-A `zero-probability` error means no world satisfies the graph's `exclusive`
-relations together with the query's evidence and interventions. The hint names
-`--given` or `--set` only when they were passed and the graph without them has
-such a world; otherwise the cause is in the graph, which then needs a base or
-strength of exactly 0 or 1.
+A `zero-probability` error means the evidence of a query has probability zero,
+so the query has no answer. The command works out the cause:
+
+- If the query fails without its `--given` and `--set` values, or none were
+  passed, as with `diagnose`, the cause is the graph: no world satisfies every
+  `exclusive` relation, which needs a base or strength of exactly 0 or 1.
+- Otherwise the passed values are the cause. Either they make both
+  propositions of an `exclusive` relation true, named in
+  `details.exclusive_relation`, or they have probability zero under the graph's
+  credences, which needs a base or strength of exactly 0 or 1. Every such
+  parameter is listed in `details.extreme_parameters`, as `base:NODE` or
+  `strength:RELATION`. In that second case, the hint mentions exclusive
+  relations only when the query succeeds without them.
+- The remedy names only values that were tried: removing any one of
+  `details.drop_any_one_of` makes the query succeed, or, when no single value
+  does, removing all of `details.drop_all_of` does.
+
+Values that contradict each other outright are refused before any inference, as
+an `invalid-argument`: two equivalent nodes given different values by `--given`
+or by `--set`, and a `--given` value that contradicts the `--set` value of the
+same proposition.
 
 Without `--json`, a success prints a short summary and a failure prints
 `error: …` and `hint: …` on stderr. Malformed command lines, such as a missing

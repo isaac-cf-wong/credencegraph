@@ -20,11 +20,15 @@ from credencegraph.cli.common import (
     require_variables,
     respond,
 )
+from credencegraph.core.credence import Point
+from credencegraph.core.graph import Graph
+from credencegraph.core.relation import EXCLUSIVE
 from credencegraph.inference.elimination import VariableElimination
 from credencegraph.inference.engine import Query
 from credencegraph.inference.errors import ZeroProbabilityError
 from credencegraph.inference.queries import Answer, conditional, intervene, joint, marginal
 from credencegraph.inference.uncertainty import DEFAULT_DRAWS
+from credencegraph.semantics.compiler import compile_graph
 from credencegraph.semantics.network import Network
 
 KINDS = ("marginal", "joint", "conditional", "intervene")
@@ -63,54 +67,209 @@ def _check_shape(kind: str, target: dict[str, bool], given: dict[str, bool], set
         raise CliError(INVALID_ARGUMENT, f"a {kind} query takes no --set", "use 'intervene' to set a node")
 
 
-def _check_merged_settings(network: Network, interventions: dict[str, bool]) -> None:
-    """Check that ``--set`` gives nodes merged by ``equivalent`` relations the same value.
+def _check_consistent(network: Network, evidence: dict[str, bool], interventions: dict[str, bool]) -> None:
+    """Refuse values that contradict each other outright, before any inference.
+
+    Nodes merged by ``equivalent`` relations are one proposition, so ``--set`` or ``--given`` must give
+    them the same value, and ``--given`` must agree with ``--set`` on a proposition it fixes.
 
     Args:
         network: The compiled network.
-        interventions: The interventions.
+        evidence: The ``--given`` values.
+        interventions: The ``--set`` values.
 
     Raises:
-        CliError: If two merged nodes are set to different values.
+        CliError: If two merged nodes get different values from one flag, or ``--given`` contradicts ``--set``.
     """
-    seen: dict[int, tuple[str, bool]] = {}
-    for node_id, value in interventions.items():
-        index = network.index(node_id)
-        other, previous = seen.setdefault(index, (node_id, value))
-        if previous != value:
+    for flag, assignment in (("--set", interventions), ("--given", evidence)):
+        seen: dict[int, tuple[str, bool]] = {}
+        for node_id, value in assignment.items():
+            other, previous = seen.setdefault(network.index(node_id), (node_id, value))
+            if previous != value:
+                raise CliError(
+                    INVALID_ARGUMENT,
+                    f"{flag} gives the equivalent nodes {other!r} and {node_id!r} different values",
+                    f"equivalent nodes are one proposition; give them the same {flag} value, or pass {flag} for only one",
+                )
+    fixed = {network.index(node_id): (node_id, value) for node_id, value in interventions.items()}
+    for node_id, value in evidence.items():
+        other, setting = fixed.get(network.index(node_id), (node_id, value))
+        if setting != value:
+            merged = "" if other == node_id else f", and {other!r} and {node_id!r} are equivalent"
             raise CliError(
                 INVALID_ARGUMENT,
-                f"--set gives the equivalent nodes {other!r} and {node_id!r} different values",
-                "equivalent nodes are one proposition; --set them to the same value, or set only one of them",
+                f"--given {_item(node_id, value)} contradicts --set {_item(other, setting)}{merged}",
+                "a proposition fixed by --set holds that value; drop the --given, or give it the --set value",
             )
 
 
-def _impossible(network: Network, query: Query, error: ZeroProbabilityError) -> CliError:
-    """Explain a query whose evidence has probability zero, naming only what the caller passed.
+def _item(node_id: str, value: bool) -> str:
+    """Write an assignment the way it is typed: ``NODE=true``."""
+    return f"{node_id}={str(value).lower()}"
+
+
+def _fails(
+    network: Network, target: dict[str, bool], evidence: dict[str, bool], interventions: dict[str, bool]
+) -> bool:
+    """Tell whether a query's evidence has probability zero.
 
     Args:
+        network: The compiled network.
+        target: The target.
+        evidence: The ``--given`` values.
+        interventions: The ``--set`` values.
+
+    Returns:
+        ``True`` if the query raises ``ZeroProbabilityError``.
+    """
+    try:
+        VariableElimination().query(network, Query(target, evidence, interventions))
+    except ZeroProbabilityError:
+        return True
+    return False
+
+
+def _extreme_parameters(graph: Graph) -> list[dict[str, object]]:
+    """List the bases and strengths that are exactly 0 or 1.
+
+    Args:
+        graph: The graph.
+
+    Returns:
+        ``{"id": "base:<node>" or "strength:<relation>", "value": ...}`` for each, in graph order.
+    """
+    extreme: list[dict[str, object]] = []
+    for node in graph.nodes.values():
+        if isinstance(node.base, Point) and node.base.p in {0.0, 1.0}:
+            extreme.append({"id": f"base:{node.id}", "value": node.base.p})
+    for relation in graph.relations.values():
+        if isinstance(relation.strength, Point) and relation.strength.p in {0.0, 1.0}:
+            extreme.append({"id": f"strength:{relation.id}", "value": relation.strength.p})
+    return extreme
+
+
+def _without_exclusive(graph: Graph) -> Graph:
+    """Copy a graph without its ``exclusive`` relations."""
+    copy = Graph()
+    for node in graph.nodes.values():
+        copy.add_node(node)
+    for relation in graph.relations.values():
+        if relation.type != EXCLUSIVE:
+            copy.add_relation(relation)
+    return copy
+
+
+def _broken_exclusive(
+    graph: Graph, network: Network, items: list[tuple[str, str, bool]]
+) -> tuple[str, str, str] | None:
+    """Find an ``exclusive`` relation whose two propositions the passed values both make true.
+
+    Args:
+        graph: The graph.
+        network: The compiled network.
+        items: The passed values as ``(flag, node id, value)``.
+
+    Returns:
+        The relation id and the two items, written ``FLAG NODE=value``, or ``None``.
+    """
+    true = {}
+    for flag, node_id, value in items:
+        if value:
+            true.setdefault(network.index(node_id), f"{flag} {_item(node_id, value)}")
+    for relation in graph.relations.values():
+        if relation.type != EXCLUSIVE:
+            continue
+        ends = network.index(relation.source), network.index(relation.target)
+        if all(end in true for end in ends):
+            return relation.id, true[ends[0]], true[ends[1]]
+    return None
+
+
+def _impossible(graph: Graph, network: Network, query: Query, error: ZeroProbabilityError) -> CliError:
+    """Explain a query whose evidence has probability zero by its cause, with a remedy that is checked.
+
+    With nothing passed, or when the query fails without its ``--given`` and ``--set`` values, the
+    cause is the graph. Otherwise the passed values are the cause, and either they make both
+    propositions of an ``exclusive`` relation true, or, since every world has positive probability
+    when every base and strength lies strictly between 0 and 1, some base or strength is exactly 0 or
+    1; those are listed, and exclusive relations are mentioned only when the query succeeds without them.
+    The remedy lists only values whose removal was tried and makes the query succeed.
+
+    Args:
+        graph: The graph.
         network: The compiled network.
         query: The query.
         error: The engine's error.
 
     Returns:
-        A ``zero-probability`` error. Its hint names ``--given`` or ``--set`` only when they were
-        passed and the graph without them has worlds that satisfy every exclusive relation;
-        otherwise it points at the graph.
+        A ``zero-probability`` error. Its details hold ``extreme_parameters``, and either
+        ``drop_any_one_of`` (removing any one of those values makes the query succeed) or
+        ``drop_all_of`` (removing all of them does), with ``exclusive_relation`` when one is broken.
     """
-    flags = [flag for flag, values in (("--given", query.evidence), ("--set", query.interventions)) if values]
-    if flags:
-        try:
-            VariableElimination().query(network, Query(query.target))
-        except ZeroProbabilityError:
-            flags = []
-    if not flags:
+    target = dict(query.target)
+    items = [("--given", n, v) for n, v in query.evidence.items()] + [
+        ("--set", n, v) for n, v in query.interventions.items()
+    ]
+    if not items or _fails(network, target, {}, {}):
         return CliError(ZERO_PROBABILITY, str(error), IMPOSSIBLE_GRAPH_HINT)
-    named = " and ".join(flags)
+    labels = [f"{flag} {_item(node_id, value)}" for flag, node_id, value in items]
+    passed = " and ".join(flag for flag in ("--given", "--set") if any(item[0] == flag for item in items))
+    message = f"the {passed} values have probability zero together, so the query has no answer"
+
+    def fails_keeping(keep: list[int]) -> bool:
+        kept = [items[i] for i in keep]
+        return _fails(
+            network,
+            target,
+            {n: v for flag, n, v in kept if flag == "--given"},
+            {n: v for flag, n, v in kept if flag == "--set"},
+        )
+
+    everything = range(len(items))
+    any_one = [labels[i] for i in everything if not fails_keeping([j for j in everything if j != i])]
+    all_of: list[str] = []
+    if not any_one:
+        for flag in ("--given", "--set"):
+            group = [i for i in everything if items[i][0] == flag]
+            if group and not fails_keeping([i for i in everything if i not in group]):
+                all_of = [labels[i] for i in group]
+                break
+        else:
+            all_of = labels
+    remedy = (
+        f"drop {any_one[0]}"
+        if len(any_one) == 1
+        else f"drop any one of {', '.join(any_one)}"
+        if any_one
+        else f"drop all of {', '.join(all_of)}"
+    )
+    details: dict[str, object] = {
+        "extreme_parameters": _extreme_parameters(graph),
+        "drop_any_one_of": any_one,
+        "drop_all_of": all_of,
+    }
+    broken = _broken_exclusive(graph, network, items)
+    if broken is not None:
+        relation, first, second = broken
+        details["exclusive_relation"] = relation
+        return CliError(
+            ZERO_PROBABILITY,
+            message,
+            f"{first} and {second} make both propositions of the exclusive relation {relation!r} true; {remedy}",
+            details,
+        )
+    responsible = any_one or all_of
+    flags = " and ".join(flag for flag in ("--given", "--set") if any(label.startswith(flag) for label in responsible))
+    uses_exclusive = any(r.type == EXCLUSIVE for r in graph.relations.values()) and not _fails(
+        compile_graph(_without_exclusive(graph)), target, dict(query.evidence), dict(query.interventions)
+    )
+    context = "the graph's credences and exclusive relations" if uses_exclusive else "the graph's credences"
     return CliError(
         ZERO_PROBABILITY,
-        str(error),
-        f"the {named} values cannot all hold under the graph's exclusive relations; drop or change one of them",
+        message,
+        f"the {flags} values have probability zero under {context}, which needs a base or strength of exactly 0 or 1 "
+        f"(listed in details.extreme_parameters); {remedy}, or move every listed parameter off 0 and 1",
+        details,
     )
 
 
@@ -156,7 +315,7 @@ def query_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to each 
         require_variables(graph, evidence, "--given")
         require_variables(graph, interventions, "--set")
         network = compile_checked(graph)
-        _check_merged_settings(network, interventions)
+        _check_consistent(network, evidence, interventions)
         query = Query(target, evidence, interventions)
         options = {"draws": draws, "rng": seed}
         answer: Answer
@@ -171,7 +330,7 @@ def query_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to each 
             else:
                 answer = joint(network, target, **options)
         except ZeroProbabilityError as error:
-            raise _impossible(network, query, error) from None
+            raise _impossible(graph, network, query, error) from None
         payload = {
             "path": str(path),
             "kind": kind,
