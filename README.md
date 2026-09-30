@@ -38,6 +38,29 @@ pip install credencegraph
 
 Requires Python 3.13+.
 
+## Example
+
+```python
+from credencegraph.core import Beta, Graph, Node, Relation
+from credencegraph.inference import conditional, intervene, marginal
+from credencegraph.semantics import compile_graph
+
+graph = Graph()
+graph.add_node(Node("calibrated", statement="The instrument is calibrated.", base=0.9))
+graph.add_node(Node("signal", statement="The signal is real.", base=0.05))
+graph.add_node(Node("claim", statement="The effect exists.", base=0.1))
+graph.add_relation(Relation("r1", "requires", "calibrated", "signal", strength=1.0))
+graph.add_relation(Relation("r2", "supports", "signal", "claim", strength=Beta(8, 2)))
+network = compile_graph(graph)
+
+marginal(network, "claim").point  # 0.1324
+conditional(network, "calibrated", {"claim": True}).point  # 0.9245
+intervene(network, "claim", set={"calibrated": False}).point  # 0.1
+```
+
+Conditioning on the claim raises the credence that the instrument is calibrated;
+intervening on calibration asks what the claim rests on without that premise.
+
 ## License
 
 BSD 3-Clause. See [LICENSE](LICENSE).
