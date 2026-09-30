@@ -51,6 +51,7 @@ nav = [
     { "Core" = "api/core/index.md" },
     { "Semantics" = "api/semantics/index.md" },
     { "Inference" = "api/inference/index.md" },
+    { "Diagnostics" = "api/diagnostics/index.md" },
     { "Utility" = [
       { "Overview" = "api/utils/index.md" },
       { "Logging" = "api/utils/log.md" },

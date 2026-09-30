@@ -93,6 +93,19 @@ def _merge(graph: Graph, node_ids: list[str]) -> tuple[_UnionFind, dict[str, lis
     return sets, members
 
 
+def inference_sets(graph: Graph) -> dict[str, list[str]]:
+    """Group a graph's inference variables into the sets that compile to one variable each.
+
+    Args:
+        graph: The graph.
+
+    Returns:
+        The node ids of each set of nodes joined by ``equivalent`` relations, keyed by its earliest
+        member, both in insertion order.
+    """
+    return _merge(graph, _inference_nodes(graph))[1]
+
+
 def _bases(graph: Graph, members: dict[str, list[str]]) -> dict[str, str]:
     """Pick the node whose base each merged set uses.
 

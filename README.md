@@ -68,6 +68,23 @@ The point answer uses the credence means; the band shows how far the answer
 moves when the uncertain parameters are drawn from their credences, and is
 omitted when every parameter is a plain number.
 
+## Diagnostics
+
+```python
+from credencegraph.diagnostics import diagnose
+
+for finding in diagnose(graph, "claim"):
+    print(finding.id, finding.message)
+```
+
+Each finding is a record with an id, the nodes and relations involved, a value
+and a one-line explanation (`finding.to_dict()` is its JSON form). For the graph
+above it reports, among others, that `calibrated` is an assumption with no
+source, ranks `r2` as the crux — the only uncertain input the claim depends on —
+and ranks `signal` as the premise most worth resolving. A node's `stated`
+credence, the confidence its source asserts, is compared with the credence its
+premises deliver, and a gap above 0.1 is reported as an overclaim or underclaim.
+
 ## License
 
 BSD 3-Clause. See [LICENSE](LICENSE).

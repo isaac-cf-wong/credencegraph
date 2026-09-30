@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from credencegraph.semantics.compiler import compile_graph
+from credencegraph.semantics.compiler import compile_graph, inference_sets
 from credencegraph.semantics.cpt import Term, exclusion_table, proposition_table
 from credencegraph.semantics.errors import CompileError
 from credencegraph.semantics.network import (
@@ -27,5 +27,6 @@ __all__ = [
     "Variable",
     "compile_graph",
     "exclusion_table",
+    "inference_sets",
     "proposition_table",
 ]
