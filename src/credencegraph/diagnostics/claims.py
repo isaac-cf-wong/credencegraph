@@ -9,6 +9,8 @@ from credencegraph.inference.engine import Engine, Query
 from credencegraph.semantics.compiler import compile_graph
 from credencegraph.semantics.network import Network
 
+# A convention of this package, not something the model determines: a gap of 0.1 in probability is
+# where a stated credence starts to read as a different claim. Pass a threshold suited to the text.
 DEFAULT_CLAIM_THRESHOLD = 0.1
 
 
@@ -31,7 +33,8 @@ def claims(
         graph: The graph.
         network: The network compiled from ``graph``; compiled here when omitted.
         threshold: The largest gap, in probability, that is not reported; a gap within 1e-12 of it
-            counts as equal to it, so rounding cannot tip a finding either way.
+            counts as equal to it, so rounding cannot tip a finding either way. The default, 0.1,
+            is a convention chosen for this package rather than a value the model fixes.
         engine: The inference engine; variable elimination by default.
 
     Returns:

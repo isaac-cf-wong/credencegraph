@@ -37,6 +37,8 @@ from credencegraph.inference.engine import Engine, Query
 from credencegraph.inference.errors import ZeroProbabilityError
 from credencegraph.semantics.network import PROPOSITION, Network, ParameterKey
 
+# A convention of this package, not something the model determines: a target left below 0.1 once a
+# premise fails is treated as sunk. Pass a threshold suited to the question.
 DEFAULT_FAILURE_THRESHOLD = 0.1
 
 
@@ -267,6 +269,8 @@ def single_points_of_failure(
         target: The id of the target node.
         threshold: The probability below which the target counts as failed; a probability within
             1e-12 of it, or of ``P(target)``, counts as equal to it, so rounding cannot tip a finding.
+            The default, 0.1, is a convention chosen for this package rather than a value the model
+            fixes.
         engine: The exact engine; variable elimination by default.
 
     Returns:
@@ -326,6 +330,9 @@ def value_of_information(network: Network, target: str, *, engine: Engine | None
     ``I(T; Y)`` is the expected reduction in the entropy of T from learning whether Y is true, so
     the top of the ranking is what would most change the target if it were resolved, and is the
     first thing to investigate. It is at most 1 bit, the entropy of a binary variable.
+
+    The unit, bits (logarithms to base 2), is a choice of this package; the ranking does not depend
+    on it. Multiply by ``ln 2`` for nats.
 
     Args:
         network: The network.

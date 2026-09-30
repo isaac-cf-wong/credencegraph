@@ -227,6 +227,21 @@ class TestValueOfInformation:
         assert "p_target_given_false" not in finding.details
         close(finding.details["p_target_given_true"], 0.6)
 
+    def test_independent_premise_is_exactly_zero_bits(self, engine):
+        """Test that an unrelated root gets exactly 0 bits where rounding would give a negative value.
+
+        With A = 0.86 supporting T (base 0.81, strength 0.51) and U = 0.35 unrelated, the four joint
+        probabilities of T and U factorise only to within rounding, and the sum defining I(T; U)
+        comes to about -3e-16 before it is clipped. Mutual information is never negative.
+        """
+        graph = Graph()
+        graph.add_node(Node("A", base=0.86))
+        graph.add_node(Node("U", base=0.35))
+        graph.add_node(Node("T", base=0.81))
+        graph.add_relation(Relation("AT", "supports", "A", "T", strength=0.51))
+        records = by_id(value_of_information(compile_graph(graph), "T", engine=engine))
+        assert records["value-of-information:U"].value == 0.0
+
     def test_merged_target_is_not_its_own_premise(self, engine):
         """Test that a node merged with the target is the target, not another variable."""
         graph = Graph()

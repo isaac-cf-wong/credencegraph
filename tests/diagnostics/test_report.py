@@ -67,8 +67,19 @@ def test_unknown_target():
 
 
 def test_report_is_strict_json():
-    """Test that a full report serialises without NaN or infinities, and round-trips."""
-    records = [finding.to_dict() for finding in diagnose(argument(), "T")]
+    """Test that a full report serialises without NaN or infinities, and round-trips.
+
+    The certain premise K is never false, so P(T | K = false) is undefined: the report has to leave
+    it out rather than divide by zero or emit NaN.
+    """
+    graph = argument()
+    graph.add_node(Node("K", base=1.0, sources=[ANCHOR]))
+    graph.add_relation(Relation("KT", "supports", "K", "T", strength=0.3))
+    findings = diagnose(graph, "T")
+    certain = next(f for f in findings if f.id == "value-of-information:K")
+    assert "p_target_given_true" in certain.details
+    assert "p_target_given_false" not in certain.details
+    records = [finding.to_dict() for finding in findings]
     text = json.dumps(records, allow_nan=False)
     assert json.loads(text) == records
     for record in records:
