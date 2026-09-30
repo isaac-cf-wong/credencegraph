@@ -1,12 +1,12 @@
 ---
 title: Inference
 description:
-    Exact engines and the marginal, joint, conditional and interventional
-    queries.
+    Exact engines, the marginal, joint, conditional and interventional queries,
+    and their uncertainty bands.
 ---
 
 Four query functions answer questions about a compiled network, each returning
-an `Answer` with the point probability:
+an `Answer`:
 
 | Query                                       | Meaning                                                    |
 | ------------------------------------------- | ---------------------------------------------------------- |
@@ -27,6 +27,33 @@ Two exact engines are provided:
 - `Enumeration` sums over every world. It is exponential in the number of free
   variables (limited to 20 by default) and serves as the independent reference
   in tests.
+
+## Parameter uncertainty
+
+Every `base` and `strength` is treated as independent of the others. An
+`Answer` carries:
+
+- `point`: the probability with every parameter at its credence mean. Because
+  each parameter enters a joint probability with degree at most one, this is
+  exactly the predictive probability E[P(A, E)] / E[P(E)] over the parameters'
+  distributions, computed without sampling.
+- `band`: the 5%, 50% and 95% quantiles (`q05`, `q50`, `q95`) of the exact
+  answer over Monte Carlo draws of the `Beta` parameters. It shows how far the
+  answer would move if the inputs were different.
+- `mean_over_draws`: the average of those per-draw answers. The draws do not
+  update the parameters on the evidence, so this generally differs from `point`
+  and is reported under its own name.
+- `draws`: the number of draws behind the band.
+
+The band is omitted (`band` and `mean_over_draws` are `None`) when every
+parameter is a `Point`, or when `draws=0` is passed. Queries make
+`DEFAULT_DRAWS` (1000) draws by default; pass `rng` (a seed or a
+`numpy.random.Generator`) for reproducible bands.
+
+Parameters are independent by construction, so correlated inputs (two
+measurements sharing an unknown bias, say) cannot be expressed as correlated
+strengths. Model the shared cause as a proposition of its own, such as "the
+instrument is calibrated", with a relation into each.
 
 <!-- prettier-ignore-start -->
 

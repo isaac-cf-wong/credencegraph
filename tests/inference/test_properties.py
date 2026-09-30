@@ -30,8 +30,8 @@ def test_probabilities_lie_in_the_unit_interval(seed):
         target = random_assignment(rng, ids, 3)
         try:
             answers = [
-                conditional(network, target, random_assignment(rng, ids, 3)).point,
-                intervene(network, target, random_assignment(rng, ids, 2)).point,
+                conditional(network, target, random_assignment(rng, ids, 3), draws=0).point,
+                intervene(network, target, random_assignment(rng, ids, 2), draws=0).point,
             ]
         except (ZeroProbabilityError, ValidationError):
             continue  # impossible evidence, or merged nodes set to different values
@@ -51,7 +51,7 @@ def test_complements_sum_to_one(seed):
     targets = list(rng.choice(ids, size=min(3, len(ids)), replace=False))
     try:
         total = sum(
-            conditional(network, dict(zip(targets, values, strict=True)), evidence).point
+            conditional(network, dict(zip(targets, values, strict=True)), evidence, draws=0).point
             for values in itertools.product([False, True], repeat=len(targets))
         )
     except ZeroProbabilityError:
@@ -142,6 +142,7 @@ def test_point_answer_is_the_predictive_probability(seed):
         network.with_parameters(means),
         {name[target_index].name: bool(target_value)},
         {name[i].name: bool(v) for i, v in evidence.items()},
+        draws=0,
     ).point
     # Measured roundoff on seeds 0-19999 (19727 pass the filter): at most 5.6e-16 absolute (56% of
     # atol alone) and 1.3e-14 relative; the worst case uses 0.62% of atol + rtol * |point|.
@@ -163,9 +164,9 @@ def test_intervening_on_a_root_equals_conditioning(seed, value):
     target = {ids[int(rng.integers(0, len(ids)))]: bool(rng.integers(0, 2))}
     evidence = random_assignment(rng, others, 2)
     try:
-        conditioned = conditional(network, target, {**evidence, root_id: value}, engine=ENGINE).point
+        conditioned = conditional(network, target, {**evidence, root_id: value}, engine=ENGINE, draws=0).point
     except ZeroProbabilityError:
         reject()
     else:
-        intervened = intervene(network, target, {root_id: value}, given=evidence, engine=ENGINE).point
+        intervened = intervene(network, target, {root_id: value}, given=evidence, engine=ENGINE, draws=0).point
         np.testing.assert_allclose(intervened, conditioned, rtol=1e-12, atol=0.0)
