@@ -135,7 +135,7 @@ class TestErrors:
             (("marginal", "claim", "--given", "signal="), "is not NODE=true|false"),
             (("joint", "claim", "claim=false"), "both true and false"),
             (("marginal", "claim", "--given", "signal=true", "--given", "signal=false"), "both true and false"),
-            (("marginal", "claim", "--draws", "-1"), "draws must be a non-negative integer"),
+            (("marginal", "claim", "--draws", "-1"), "--draws must be 0 or more"),
         ],
     )
     def test_invalid_query(self, cli, graph_file, args, fragment):
@@ -168,10 +168,10 @@ class TestErrors:
         """Test that a node that is not an inference variable cannot be queried."""
         error = cli.error("query", graph_file, "marginal", "alice")
         assert error["code"] == "invalid-argument"
-        assert "not an inference variable" in error["message"]
+        assert "takes no part in inference" in error["message"]
 
     def test_missing_base(self, cli, tmp_path):
-        """Test that a graph that cannot compile points at ``check``."""
+        """Test that a graph that cannot compile names the node without a base."""
         graph = Graph()
         graph.add_node(Node("a", base=0.5))
         graph.add_node(Node("b"))
@@ -180,7 +180,7 @@ class TestErrors:
         dump(graph, path)
         error = cli.error("query", path, "marginal", "b")
         assert error["code"] == "compile-error"
-        assert f"credencegraph check {path}" in error["hint"]
+        assert "set a base on each node listed" in error["hint"]
 
     def test_impossible_evidence(self, cli, tmp_path):
         """Test that evidence of probability zero is reported as such."""

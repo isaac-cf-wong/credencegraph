@@ -24,12 +24,13 @@ from credencegraph.cli.common import (
     parse_source,
     read_graph,
     require_nodes,
+    require_text,
     respond,
     write_graph,
 )
 from credencegraph.core.graph import Graph
 from credencegraph.core.node import DEFAULT_KIND, Node
-from credencegraph.core.relation import INFERENTIAL_TYPES, STRENGTH_TYPES, Relation
+from credencegraph.core.relation import EQUIVALENT, EXCLUSIVE, INFERENTIAL_TYPES, STRENGTH_TYPES, Relation
 from credencegraph.core.serialization import credence_to_json
 
 
@@ -51,7 +52,7 @@ def init_command(
         write_graph(Graph(), path)
         return Result({"path": str(path), "nodes": 0, "relations": 0}, [f"created empty graph {path}"])
 
-    respond("init", as_json, action, path)
+    respond("init", as_json, action)
 
 
 def add_node_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to each option
@@ -76,6 +77,8 @@ def add_node_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to ea
     """Add a node to a graph file."""
 
     def action() -> Result:
+        for value, option in ((node_id, "--id"), (statement, "--statement"), (kind, "--kind")):
+            require_text(value, option)
         graph = read_graph(path)
         if node_id in graph:
             raise CliError(
@@ -107,7 +110,7 @@ def add_node_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to ea
         }
         return Result(payload, [f"added node {node.id!r} to {path}"])
 
-    respond("add-node", as_json, action, path)
+    respond("add-node", as_json, action)
 
 
 def _default_relation_id(graph: Graph, source: str, relation_type: str, target: str) -> str:
@@ -179,6 +182,14 @@ def relate_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to each
     """Add a relation between two nodes of a graph file."""
 
     def action() -> Result:
+        require_text(relation_type, "--type")
+        require_text(relation_id, "--id")
+        if relation_type in (EQUIVALENT, EXCLUSIVE) and source == target:
+            raise CliError(
+                INVALID_ARGUMENT,
+                f"an {relation_type} relation joins two different nodes, but SOURCE and TARGET are both {source!r}",
+                "name two different nodes as SOURCE and TARGET",
+            )
         graph = read_graph(path)
         require_nodes(graph, (source,), "source")
         require_nodes(graph, (target,), "target")
@@ -232,4 +243,4 @@ def relate_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to each
         text.extend(f"warning: {warning}" for warning in warnings)
         return Result(payload, text)
 
-    respond("relate", as_json, action, path)
+    respond("relate", as_json, action)

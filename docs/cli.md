@@ -33,7 +33,7 @@ credencegraph diagnose g.json --target claim
 | `relate`   | Add a relation `SOURCE TARGET --type TYPE`, with `--strength` where the type needs one.  |
 | `query`    | `marginal`, `joint`, `conditional` or `intervene`, with `--given`, `--set`, `--draws`, `--seed`. |
 | `diagnose` | The findings of every diagnostic; with `--target`, the weak points of that node too.     |
-| `check`    | Whether the file is a valid graph that compiles; exits with status 1 when it is not.     |
+| `check`    | Whether the file is a valid graph that compiles; a graph that does not is a `compile-error`. |
 | `version`  | The installed version.                                                                   |
 
 **Credences** are written as a bare probability, `0.3`, or as a Beta
@@ -94,7 +94,23 @@ A failure exits with status 1 and prints an `error` object instead:
 The `code` is stable and meant for programs; the `message` and `hint` are for
 people. The codes are `file-exists`, `file-not-found`, `io-error`,
 `invalid-graph`, `invalid-argument`, `duplicate-id`, `unknown-node`, `cycle`,
-`compile-error`, `zero-probability`, `problem-too-large` and `inference-error`.
+`compile-error`, `zero-probability` and `problem-too-large`.
+
+A graph that cannot be compiled for inference is a `compile-error`, whichever
+command meets it: an inference variable without a base, equivalent nodes with
+different bases, or a cycle that appears once equivalent nodes are merged. The
+`details` name the nodes: `errors` holds a `missing-parameter` finding per node
+without a base, and `conflicting_bases` each pair of disagreeing equivalent
+nodes. When `check` fails this way, `details` also carries the whole verdict:
+the `path`, the `nodes` and `relations` counts and the `warnings`. A passing
+`check` prints `{"command", "path", "nodes", "relations", "warnings"}`, where
+the warnings are the unanchored variables, which do not fail the check.
+
+A `zero-probability` error means no world satisfies the graph's `exclusive`
+relations together with the query's evidence and interventions. The hint names
+`--given` or `--set` only when they were passed and the graph without them has
+such a world; otherwise the cause is in the graph, which then needs a base or
+strength of exactly 0 or 1.
 
 Without `--json`, a success prints a short summary and a failure prints
 `error: …` and `hint: …` on stderr. Malformed command lines, such as a missing

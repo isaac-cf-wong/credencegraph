@@ -7,18 +7,20 @@ from typing import Annotated
 import typer
 
 from credencegraph.cli.common import (
+    INVALID_ARGUMENT,
+    CliError,
     GraphPath,
     JsonOption,
     Result,
+    compile_failure,
     read_graph,
-    require_nodes,
+    require_variables,
     respond,
-    translate,
 )
 from credencegraph.diagnostics.claims import DEFAULT_CLAIM_THRESHOLD
 from credencegraph.diagnostics.records import Finding
 from credencegraph.diagnostics.report import diagnose
-from credencegraph.diagnostics.structure import missing_parameters, unanchored
+from credencegraph.diagnostics.structure import unanchored
 from credencegraph.diagnostics.weak_points import DEFAULT_FAILURE_THRESHOLD
 from credencegraph.semantics.compiler import compile_graph
 from credencegraph.semantics.errors import CompileError
@@ -34,6 +36,28 @@ def _lines(findings: list[Finding]) -> list[str]:
         ``<id>: <message>`` for each finding.
     """
     return [f"{finding.id}: {finding.message}" for finding in findings]
+
+
+def _threshold(value: float, option: str) -> float:
+    """Check that a threshold is a probability.
+
+    Args:
+        value: The value given on the command line.
+        option: The option it came from, used in the error message.
+
+    Returns:
+        The value.
+
+    Raises:
+        CliError: If the value is not in [0, 1].
+    """
+    if not 0.0 <= value <= 1.0:
+        raise CliError(
+            INVALID_ARGUMENT,
+            f"{option} must lie in [0, 1], got {value!r}",
+            f"pass {option} a probability between 0 and 1",
+        )
+    return value
 
 
 def diagnose_command(
@@ -53,51 +77,44 @@ def diagnose_command(
     """Report the weak points of a graph file and, with --target, of one of its nodes."""
 
     def action() -> Result:
+        claims_at = _threshold(claim_threshold, "--claim-threshold")
+        failures_at = _threshold(failure_threshold, "--failure-threshold")
         graph = read_graph(path)
         if target is not None:
-            require_nodes(graph, (target,), "--target")
-        findings = diagnose(graph, target, claim_threshold=claim_threshold, failure_threshold=failure_threshold)
+            require_variables(graph, (target,), "--target")
+        try:
+            findings = diagnose(graph, target, claim_threshold=claims_at, failure_threshold=failures_at)
+        except CompileError as error:
+            raise compile_failure(graph, error) from None
         payload = {"path": str(path), "target": target, "findings": [finding.to_dict() for finding in findings]}
         return Result(payload, _lines(findings) or ["no findings"])
 
-    respond("diagnose", as_json, action, path)
+    respond("diagnose", as_json, action)
 
 
 def check_command(path: GraphPath, as_json: JsonOption = False) -> None:
     """Check that a graph file is valid and can be compiled for inference.
 
     The file must parse as a credencegraph graph: known fields, unique ids, relations between existing
-    nodes, and no cycle among requires, supports and refutes. Every inference variable needs a base.
-    An unanchored variable is reported but does not fail the check. The exit status is 1 when the
-    check fails.
+    nodes, and no cycle among requires, supports and refutes. It must also compile: every inference
+    variable needs a base, and equivalent nodes need the same one. A graph that does not compile is
+    reported as a compile-error, with the counts and every finding under details. An unanchored
+    variable is reported as a warning and does not fail the check.
     """
 
     def action() -> Result:
         graph = read_graph(path)
-        errors = missing_parameters(graph)
         warnings = unanchored(graph)
-        compile_error = None
-        if not errors:
-            try:
-                compile_graph(graph)
-            except CompileError as error:
-                compile_error = translate(error, path).to_dict()
-        ok = not errors and compile_error is None
-        payload = {
-            "path": str(path),
-            "ok": ok,
-            "nodes": len(graph.nodes),
-            "relations": len(graph.relations),
-            "errors": [finding.to_dict() for finding in errors],
-            "compile_error": compile_error,
-            "warnings": [finding.to_dict() for finding in warnings],
-        }
-        verdict = "ok" if ok else "failed"
-        text = [f"{path}: {verdict} ({len(graph.nodes)} nodes, {len(graph.relations)} relations)"]
-        text.extend(f"error: {line}" for line in _lines(errors))
-        if compile_error is not None:
-            text.append(f"error: {compile_error['message']}")
+        counts = {"path": str(path), "nodes": len(graph.nodes), "relations": len(graph.relations)}
+        try:
+            compile_graph(graph)
+        except CompileError as error:
+            failure = compile_failure(graph, error)
+            failure.details = {**counts, **failure.details, "warnings": [finding.to_dict() for finding in warnings]}
+            raise failure from None
+        payload = {**counts, "warnings": [finding.to_dict() for finding in warnings]}
+        text = [f"{path}: ok ({len(graph.nodes)} nodes, {len(graph.relations)} relations)"]
         text.extend(f"warning: {line}" for line in _lines(warnings))
-        return Result(payload, text, 0 if ok else 1)
+        return Result(payload, text)
 
-    respond("check", as_json, action, path)
+    respond("check", as_json, action)

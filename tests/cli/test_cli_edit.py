@@ -286,7 +286,7 @@ class TestRelate:
         """Test that the data model's own refusals reach the caller."""
         error = cli.error("relate", graph_file, "claim", "claim", "--type", "equivalent")
         assert error["code"] == "invalid-argument"
-        assert "itself" in error["message"]
+        assert "both 'claim'" in error["message"]
 
 
 def test_text_mode_errors_go_to_stderr(cli, graph_file):

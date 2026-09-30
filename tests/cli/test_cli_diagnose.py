@@ -10,7 +10,6 @@ from _cli import example_graph
 import credencegraph
 from credencegraph.core import Graph, Node, Relation, ValidationError, dump
 from credencegraph.diagnostics import diagnose
-from credencegraph.inference import InferenceError, ProblemTooLargeError
 
 
 class TestDiagnose:
@@ -82,15 +81,15 @@ def graph_with(*nodes: Node, relations: tuple[Relation, ...] = ()) -> Graph:
 
 
 class TestCheck:
-    """``check`` passes a usable graph and fails, with status 1, one that cannot be compiled."""
+    """``check`` passes a usable graph and fails, with a compile error, one that cannot be compiled.
+
+    The failing verdicts are in ``test_cli_contract.py``.
+    """
 
     def test_passes(self, cli, graph_file):
-        """Test a usable graph: ok, counts, and the unanchored variable as a warning only."""
+        """Test a usable graph: counts, and the unanchored variable as a warning only."""
         output = cli.json("check", graph_file)
-        assert output["ok"] is True
         assert (output["nodes"], output["relations"]) == (4, 3)
-        assert output["errors"] == []
-        assert output["compile_error"] is None
         assert [finding["id"] for finding in output["warnings"]] == ["unanchored:calibrated"]
 
     def test_empty_graph_passes(self, cli, tmp_path):
@@ -98,36 +97,7 @@ class TestCheck:
         path = tmp_path / "g.json"
         cli.json("init", path)
         output = cli.json("check", path)
-        assert output["ok"] is True
-        assert output["warnings"] == []
-
-    def test_missing_base_fails(self, cli, tmp_path):
-        """Test that an inference variable without a base fails the check and is named."""
-        path = tmp_path / "g.json"
-        dump(
-            graph_with(
-                Node("a", base=0.5, sources=()),
-                Node("b"),
-                relations=(Relation("ab", "supports", "a", "b", strength=0.5),),
-            ),
-            path,
-        )
-        output = cli.json("check", path, exit_code=1)
-        assert output["ok"] is False
-        assert [finding["id"] for finding in output["errors"]] == ["missing-parameter:base:b"]
-        assert output["compile_error"] is None
-
-    def test_conflicting_bases_fail(self, cli, tmp_path):
-        """Test that a graph whose structure is complete but does not compile fails with the compile error."""
-        path = tmp_path / "g.json"
-        dump(
-            graph_with(Node("a", base=0.3), Node("b", base=0.4), relations=(Relation("e", "equivalent", "a", "b"),)),
-            path,
-        )
-        output = cli.json("check", path, exit_code=1)
-        assert output["ok"] is False
-        assert output["errors"] == []
-        assert output["compile_error"]["code"] == "compile-error"
+        assert output == {"command": "check", "path": str(path), "nodes": 0, "relations": 0, "warnings": []}
 
     def test_invalid_file(self, cli, tmp_path):
         """Test that a file that does not parse as a graph is an error, not a verdict."""
@@ -158,18 +128,21 @@ class TestCheck:
         """Test that a missing graph file is reported."""
         assert cli.error("check", tmp_path / "g.json")["code"] == "file-not-found"
 
-    def test_text_output_and_exit_status(self, cli, tmp_path):
-        """Test the human-readable verdict and that a failed check exits with status 1."""
-        path = tmp_path / "g.json"
+    def test_text_output(self, cli, graph_file, tmp_path):
+        """Test the human-readable verdict of a pass, and that a failure goes to stderr with status 1."""
+        result = cli.run("check", graph_file)
+        assert result.exit_code == 0
+        assert result.stdout.splitlines()[0] == f"{graph_file}: ok (4 nodes, 3 relations)"
+        assert result.stdout.splitlines()[1].startswith("warning: unanchored:calibrated:")
+        path = tmp_path / "bad.json"
         dump(
             graph_with(Node("a", base=0.5), Node("b"), relations=(Relation("ab", "supports", "a", "b", strength=0.5),)),
             path,
         )
         result = cli.run("check", path)
         assert result.exit_code == 1
-        lines = result.stdout.splitlines()
-        assert lines[0] == f"{path}: failed (2 nodes, 1 relations)"
-        assert lines[1].startswith("error: missing-parameter:base:b:")
+        assert result.stdout == ""
+        assert result.stderr.splitlines()[0] == "error: inference variables without a base: 'b'"
 
 
 def test_version(cli):
@@ -183,20 +156,13 @@ def test_unreadable_path(cli, tmp_path):
     assert cli.error("check", tmp_path)["code"] == "io-error"
 
 
-@pytest.mark.parametrize(
-    ("error", "expected"),
-    [
-        (
-            ProblemTooLargeError("too big", required=2**30, limit=2**22),
-            ("problem-too-large", {"required": 2**30, "limit": 2**22}),
-        ),
-        (InferenceError("engine failed"), ("inference-error", {})),
-        (ValidationError("bad value"), ("invalid-argument", {})),
-    ],
-)
-def test_library_errors_raised_by_a_command(cli, graph_file, mocker, error, expected):
-    """Test that an inference or validation error raised inside a command is reported with its code."""
-    mocker.patch("credencegraph.cli.diagnose.diagnose", side_effect=error)
-    reported = cli.error("diagnose", graph_file, "--target", "claim")
-    assert (reported["code"], reported["details"]) == expected
-    assert reported["message"] == str(error)
+def test_unanticipated_validation_error(cli, graph_file, mocker):
+    """Test the safety net for a validation error no command checks for first.
+
+    The library is stubbed here because every validation error a command can meet is checked, and
+    restated, before the library is called; this pins only what the fallback reports.
+    """
+    mocker.patch("credencegraph.cli.diagnose.diagnose", side_effect=ValidationError("bad value"))
+    error = cli.error("diagnose", graph_file, "--target", "claim")
+    assert (error["code"], error["message"], error["details"]) == ("invalid-argument", "bad value", {})
+    assert error["hint"] == "check the arguments against 'credencegraph diagnose --help'"

@@ -23,9 +23,12 @@ from credencegraph.core.anchor import SourceAnchor
 from credencegraph.core.credence import Beta, Credence, Point
 from credencegraph.core.errors import CredenceGraphError, CycleError, ValidationError
 from credencegraph.core.graph import Graph
-from credencegraph.core.serialization import dumps, loads
-from credencegraph.inference.errors import InferenceError, ProblemTooLargeError, ZeroProbabilityError
+from credencegraph.core.serialization import credence_to_json, dumps, loads
+from credencegraph.diagnostics.structure import missing_parameters
+from credencegraph.inference.errors import ProblemTooLargeError, ZeroProbabilityError
+from credencegraph.semantics.compiler import compile_graph, inference_sets
 from credencegraph.semantics.errors import CompileError
+from credencegraph.semantics.network import Network
 
 # Error codes. They are part of the JSON output and stay stable across releases.
 FILE_EXISTS = "file-exists"
@@ -39,7 +42,28 @@ CYCLE = "cycle"
 COMPILE_ERROR = "compile-error"
 ZERO_PROBABILITY = "zero-probability"
 PROBLEM_TOO_LARGE = "problem-too-large"
-INFERENCE_ERROR = "inference-error"
+
+ERROR_CODES = (
+    FILE_EXISTS,
+    FILE_NOT_FOUND,
+    IO_ERROR,
+    INVALID_GRAPH,
+    INVALID_ARGUMENT,
+    DUPLICATE_ID,
+    UNKNOWN_NODE,
+    CYCLE,
+    COMPILE_ERROR,
+    ZERO_PROBABILITY,
+    PROBLEM_TOO_LARGE,
+)
+
+# Why no world satisfies the exclusive relations. If every base and strength lies strictly between 0
+# and 1, the world in which every proposition is false has positive probability and satisfies every
+# exclusive relation, so a probability of zero needs a parameter at exactly 0 or 1.
+IMPOSSIBLE_GRAPH_HINT = (
+    "no world satisfies every exclusive relation under the graph's credences, which needs some base or "
+    "strength of exactly 0 or 1; soften one of those or remove an exclusive relation"
+)
 
 CREDENCE_FORMS = "a probability such as 0.3, or beta:ALPHA,BETA such as beta:8,2"
 
@@ -83,25 +107,26 @@ class Result:
     Attributes:
         payload: The JSON fields of the response, besides ``command``.
         text: The summary printed without ``--json``, one line per entry.
-        exit_code: The exit status; a command whose outcome is a verdict, such as ``check``, may set 1.
     """
 
     payload: dict[str, Any]
     text: list[str]
-    exit_code: int = 0
 
 
-def translate(error: CredenceGraphError, graph_path: Path | None = None) -> CliError:
-    """Turn a library error into a ``CliError`` with a code and, where there is one, a remedy.
+def translate(error: CredenceGraphError, command: str | None = None) -> CliError:
+    """Turn a library error into a ``CliError`` with a code and a remedy.
+
+    Commands check their arguments before calling the library, and explain a graph that cannot be
+    compiled with ``compile_failure``, so the last branch is a safety net for a validation error
+    no command anticipated.
 
     Args:
         error: The library error.
-        graph_path: The graph file the command worked on, used in hints.
+        command: The command that raised it, named in the fallback hint.
 
     Returns:
         The error to report.
     """
-    check = f"run 'credencegraph check {graph_path}' to list what is missing" if graph_path else None
     if isinstance(error, CycleError):
         return CliError(
             CYCLE,
@@ -109,10 +134,8 @@ def translate(error: CredenceGraphError, graph_path: Path | None = None) -> CliE
             "requires, supports and refutes relations must not form a cycle; drop or reverse one of the relations named",
             {"cycle": list(error.cycle), "relations": list(error.relations)},
         )
-    if isinstance(error, CompileError):
-        return CliError(COMPILE_ERROR, str(error), check)
     if isinstance(error, ZeroProbabilityError):
-        return CliError(ZERO_PROBABILITY, str(error), "the evidence cannot all hold at once; drop or change a --given")
+        return CliError(ZERO_PROBABILITY, str(error), IMPOSSIBLE_GRAPH_HINT)
     if isinstance(error, ProblemTooLargeError):
         return CliError(
             PROBLEM_TOO_LARGE,
@@ -120,35 +143,119 @@ def translate(error: CredenceGraphError, graph_path: Path | None = None) -> CliE
             "the graph is too large for exact inference",
             {"required": error.required, "limit": error.limit},
         )
-    if isinstance(error, InferenceError):
-        return CliError(INFERENCE_ERROR, str(error))
-    return CliError(INVALID_ARGUMENT, str(error))
+    usage = f"'credencegraph {command} --help'" if command else "'credencegraph --help'"
+    return CliError(INVALID_ARGUMENT, str(error), f"check the arguments against {usage}")
 
 
-def respond(command: str, as_json: bool, action: Callable[[], Result], graph_path: Path | None = None) -> NoReturn:
+def format_credence(credence: Credence) -> str:
+    """Write a credence the way it is typed on the command line.
+
+    Args:
+        credence: The credence.
+
+    Returns:
+        ``0.3`` for a ``Point``, ``beta:8,2`` for a ``Beta``.
+    """
+
+    def number(value: float) -> str:
+        return str(int(value)) if value.is_integer() else repr(value)
+
+    if isinstance(credence, Point):
+        return number(credence.p)
+    return f"beta:{number(credence.alpha)},{number(credence.beta)}"
+
+
+def compile_failure(graph: Graph, error: CompileError) -> CliError:
+    """Explain why a graph cannot be compiled, from the graph itself rather than the message.
+
+    Args:
+        graph: The graph.
+        error: The compiler's error, reported as is when the graph shows no missing or conflicting base.
+
+    Returns:
+        A ``compile-error`` naming the nodes without a base and the equivalent nodes whose bases
+        conflict, with ``details.errors`` (the missing-parameter findings) and
+        ``details.conflicting_bases``.
+    """
+    missing = missing_parameters(graph)
+    conflicts = []
+    for ids in inference_sets(graph).values():
+        carriers = [node_id for node_id in ids if graph.nodes[node_id].base is not None]
+        conflicts.extend(
+            (carriers[0], other) for other in carriers[1:] if graph.nodes[other].base != graph.nodes[carriers[0]].base
+        )
+    details = {
+        "errors": [finding.to_dict() for finding in missing],
+        "conflicting_bases": [
+            {"nodes": [a, b], "bases": [credence_to_json(graph.nodes[a].base), credence_to_json(graph.nodes[b].base)]}  # type: ignore[arg-type]
+            for a, b in conflicts
+        ],
+    }
+    messages = []
+    hints = []
+    if conflicts:
+        messages.extend(
+            f"equivalent nodes {a!r} and {b!r} have conflicting bases "
+            f"{format_credence(graph.nodes[a].base)} and {format_credence(graph.nodes[b].base)}"  # type: ignore[arg-type]
+            for a, b in conflicts
+        )
+        hints.append("give equivalent nodes the same base, or a base on only one of them")
+    if missing:
+        nodes = ", ".join(repr(finding.nodes[0]) for finding in missing)
+        messages.append(f"inference variables without a base: {nodes}")
+        hints.append("set a base on each node listed in the graph file; there is no default credence")
+    if not messages:
+        return CliError(
+            COMPILE_ERROR,
+            str(error),
+            "an equivalent relation merges nodes that the relations named then join in a cycle; "
+            "remove the equivalent relation or one relation of the cycle",
+            details,
+        )
+    return CliError(COMPILE_ERROR, "; ".join(messages), "; ".join(hints), details)
+
+
+def compile_checked(graph: Graph) -> Network:
+    """Compile a graph, explaining a failure with ``compile_failure``.
+
+    Args:
+        graph: The graph.
+
+    Returns:
+        The network.
+
+    Raises:
+        CliError: If the graph cannot be compiled.
+    """
+    try:
+        return compile_graph(graph)
+    except CompileError as error:
+        raise compile_failure(graph, error) from None
+
+
+def respond(command: str, as_json: bool, action: Callable[[], Result]) -> NoReturn:
     """Run a command's action and print its result or its error.
 
     Args:
         command: The command's name, echoed in the JSON output.
         as_json: Whether to print JSON instead of text.
         action: The work of the command.
-        graph_path: The graph file the command works on, used in hints.
 
     Raises:
-        typer.Exit: With the result's exit status, or 1 on an error.
+        typer.Exit: With status 0 on success, or 1 on an error.
     """
     try:
         result = action()
     except CliError as error:
         _fail(command, as_json, error)
     except CredenceGraphError as error:
-        _fail(command, as_json, translate(error, graph_path))
+        _fail(command, as_json, translate(error, command))
     if as_json:
         typer.echo(json.dumps({"command": command, **result.payload}, indent=2, allow_nan=False))
     else:
         for line in result.text:
             typer.echo(line)
-    raise typer.Exit(result.exit_code)
+    raise typer.Exit(0)
 
 
 def _fail(command: str, as_json: bool, error: CliError) -> NoReturn:
@@ -351,3 +458,41 @@ def require_nodes(graph: Graph, node_ids: Iterable[str], role: str) -> None:
         close = difflib.get_close_matches(node_id, list(graph.nodes), n=3)
         hint = f"did you mean {', '.join(repr(c) for c in close)}?" if close else "add it with 'credencegraph add-node'"
         raise CliError(UNKNOWN_NODE, f"{role} {node_id!r} is not a node of the graph", hint, {"node": node_id})
+
+
+def require_variables(graph: Graph, node_ids: Iterable[str], role: str) -> None:
+    """Check that every id names a node of the graph that takes part in inference.
+
+    Args:
+        graph: The graph.
+        node_ids: The ids to check.
+        role: What the ids are for, such as ``--given``, used in the error message.
+
+    Raises:
+        CliError: If an id is not a node, or is a node with no base and no inferential relation.
+    """
+    node_ids = list(node_ids)
+    require_nodes(graph, node_ids, role)
+    variables = {node_id for ids in inference_sets(graph).values() for node_id in ids}
+    for node_id in node_ids:
+        if node_id not in variables:
+            raise CliError(
+                INVALID_ARGUMENT,
+                f"{role} {node_id!r} takes no part in inference: it has no base and no inferential relation",
+                f"give {node_id!r} a base or an inferential relation in the graph file, or name another node",
+                {"node": node_id},
+            )
+
+
+def require_text(value: str | None, option: str) -> None:
+    """Check that an option given on the command line is not empty.
+
+    Args:
+        value: The value, or ``None`` when the option was not given.
+        option: The option, used in the error message.
+
+    Raises:
+        CliError: If the value is the empty string.
+    """
+    if value is not None and not value:
+        raise CliError(INVALID_ARGUMENT, f"{option} must not be empty", f"pass a non-empty {option}")
