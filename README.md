@@ -56,10 +56,17 @@ network = compile_graph(graph)
 marginal(network, "claim").point  # 0.1324
 conditional(network, "calibrated", {"claim": True}).point  # 0.9245
 intervene(network, "claim", set={"calibrated": False}).point  # 0.1
+
+answer = marginal(network, "claim", rng=0)
+answer.band  # Band(q05=0.1235, q50=0.1335, q95=0.1387), over draws of Beta(8, 2)
+answer.mean_over_draws  # 0.1326, the average of the per-draw answers
 ```
 
 Conditioning on the claim raises the credence that the instrument is calibrated;
 intervening on calibration asks what the claim rests on without that premise.
+The point answer uses the credence means; the band shows how far the answer
+moves when the uncertain parameters are drawn from their credences, and is
+omitted when every parameter is a plain number.
 
 ## License
 
