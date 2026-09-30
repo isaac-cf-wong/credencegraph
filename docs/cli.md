@@ -122,15 +122,26 @@ so the query has no answer. The command works out the cause:
   only when the named values succeed without them.
 - The remedies name only changes that were tried and make the command
   succeed. Dropping any one of `details.drop_any_one_of` does, or, when no
-  single value does, dropping all of `details.drop_all_of`, the smallest such
-  set found. A drop that leaves the command ill-formed, such as an `intervene`
-  query without `--set`, is not offered. Moving any one of
+  single value does, dropping all of `details.drop_all_of`: the first set of
+  the smallest size that does, of which there may be others, and none of whose
+  values can be kept. A drop that leaves the command ill-formed, such as an
+  `intervene` query without `--set`, is not offered. Moving any one of
   `details.move_any_one_of` off 0 and 1 does too, or all of
   `details.move_all_of`; those parameters are listed with their values in
   `details.extreme_parameters`, as `base:NODE` or `strength:RELATION`, and a
   base or strength at 0 or 1 that does not bear on the query is not listed.
-  Each list is empty when no such change was found; when none is, the hint
-  says so.
+  A move is tried at 0.5, which stands for every other value: in exact
+  arithmetic, whether a query has probability zero depends only on which bases
+  and strengths are exactly 0 or 1. A base or strength within rounding error of
+  0 or 1, such as 0.9999999999999999, can round a probability to zero, and is
+  not listed as one to move.
+- The search is bounded. Drops, moves and the removal of one exclusive
+  relation are tried separately, never combined, and the search for several
+  values to drop, or several parameters to move, stops after 256 tries. Each
+  list is empty when no such change was found. When none is, the hint says
+  so and that combined changes were not tried. When a search stops at 256
+  tries, `details.search_truncated` names it, `drop` or `move`, and the hint
+  says a change not tried may still make the command succeed.
 
 Values that contradict each other outright are refused before any inference, as
 an `invalid-argument`: two equivalent nodes given different values by `--given`

@@ -136,8 +136,10 @@ def _fails(
     return False
 
 
-def _smallest(count: int, clears: Callable[[tuple[int, ...]], bool]) -> tuple[list[int], list[int]]:
+def _smallest(count: int, clears: Callable[[tuple[int, ...]], bool]) -> tuple[list[int], list[int], bool]:
     """Find the smallest changes that clear a failure, by trying them.
+
+    Every single change is tried, then sets of two, three and so on, until ``SEARCH_BUDGET`` tries.
 
     Args:
         count: The number of candidate changes.
@@ -145,20 +147,21 @@ def _smallest(count: int, clears: Callable[[tuple[int, ...]], bool]) -> tuple[li
 
     Returns:
         The indices that clear it one at a time, or, when none does, the first smallest set that clears
-        it together. Both are empty when nothing tried within ``SEARCH_BUDGET`` tries clears it.
+        it together, and whether the search stopped at ``SEARCH_BUDGET`` with sets left untried. The
+        lists are both empty when nothing tried clears it.
     """
     any_one = [i for i in range(count) if clears((i,))]
     if any_one:
-        return any_one, []
+        return any_one, [], False
     tries = count
     for size in range(2, count + 1):
         for group in combinations(range(count), size):
             if tries >= SEARCH_BUDGET:
-                return [], []
+                return [], [], True
             tries += 1
             if clears(group):
-                return [], list(group)
-    return [], []
+                return [], list(group), False
+    return [], [], False
 
 
 def _rebuilt(graph: Graph, removed: frozenset[str] = frozenset(), softened: frozenset[str] = frozenset()) -> Graph:
@@ -284,6 +287,8 @@ def _impossible(kind: str, graph: Graph, network: Network, query: Query, error: 
     passed values make both its propositions true and removing it makes the command succeed, values
     to drop when dropping them does, and bases or strengths when moving them off 0 and 1 does. A drop
     that leaves the command ill-formed, such as an ``intervene`` query without ``--set``, is no remedy.
+    Drops, moves and the removal of one relation are tried separately, never combined, and a search
+    that stops at ``SEARCH_BUDGET`` says so, so no remedy found does not read as none existing.
 
     Args:
         kind: The kind of query.
@@ -298,7 +303,8 @@ def _impossible(kind: str, graph: Graph, network: Network, query: Query, error: 
         ``move_any_one_of`` or ``move_all_of`` for the bases and strengths at 0 or 1 whose move does,
         ``extreme_parameters`` for those parameters with their values, and ``exclusive_relation`` when
         removing one relation the passed values break does. Each list is empty when no such remedy
-        was found.
+        was found. ``search_truncated`` lists ``drop`` and ``move`` for the searches that stopped at
+        ``SEARCH_BUDGET`` with larger sets untried.
     """
     target = dict(query.target)
     items = [("--given", n, v) for n, v in query.evidence.items()] + [
@@ -322,19 +328,21 @@ def _impossible(kind: str, graph: Graph, network: Network, query: Query, error: 
         except CompileError:
             return False
 
-    any_drop, all_drop = _smallest(len(items), drop_clears)
+    any_drop, all_drop, drops_cut = _smallest(len(items), drop_clears)
     extreme = _extreme_parameters(graph)
-    any_move, all_move = _smallest(
+    any_move, all_move, moves_cut = _smallest(
         len(extreme), lambda group: succeeds_on(_rebuilt(graph, softened=frozenset(extreme[i]["id"] for i in group)))
     )
     drops = [labels[i] for i in any_drop or all_drop]
     moves = [str(extreme[i]["id"]) for i in any_move or all_move]
+    truncated = [name for name, cut in (("drop", drops_cut), ("move", moves_cut)) if cut]
     details: dict[str, object] = {
         "extreme_parameters": [extreme[i] for i in any_move or all_move],
         "drop_any_one_of": drops if any_drop else [],
         "drop_all_of": drops if all_drop else [],
         "move_any_one_of": moves if any_move else [],
         "move_all_of": moves if all_move else [],
+        "search_truncated": truncated,
     }
     remedies = []
     if drops:
@@ -350,9 +358,17 @@ def _impossible(kind: str, graph: Graph, network: Network, query: Query, error: 
         which = _either(moves) if any_move else f"all of {', '.join(moves)}"
         remedies.append(f"move {which} off 0 and 1 (details.extreme_parameters)")
     remedy = ", or ".join(remedies) or (
-        "no drop of passed values, and no move of bases or strengths off 0 and 1, that was tried makes this "
-        "command succeed"
+        "no drop of passed values, no move of bases or strengths off 0 and 1, and no removal of one exclusive "
+        "relation that was tried makes this command succeed; a drop combined with a move or a removal, and the "
+        "removal of several exclusive relations, were not tried"
     )
+    if truncated:
+        searched = {"drop": "drops of several values", "move": "moves of several parameters"}
+        what = " and ".join(searched[name] for name in truncated)
+        remedy += (
+            f"; the search stopped after {SEARCH_BUDGET} tries of {what}, so one not tried may make it succeed "
+            "(details.search_truncated)"
+        )
     return CliError(ZERO_PROBABILITY, message, f"{cause}; {remedy}", details)
 
 

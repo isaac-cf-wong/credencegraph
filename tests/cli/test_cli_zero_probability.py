@@ -106,6 +106,44 @@ def equivalent_pair(path: Path) -> Path:
     return write(path, Node("a", base=0.5), Node("b"), relations=(Relation("e", "equivalent", "a", "b"),))
 
 
+def two_broken_exclusives(path: Path) -> Path:
+    """``a`` and ``b`` are exclusive, and so are ``c`` and ``d``; every node has even odds."""
+    return write(
+        path,
+        *(Node(n, base=0.5) for n in "abcdT"),
+        relations=(Relation("x", "exclusive", "a", "b"), Relation("y", "exclusive", "c", "d")),
+    )
+
+
+def equivalent_impossible_bases(path: Path) -> Path:
+    """``a`` and ``b`` are one proposition with a base of 0 each, so neither base can move alone."""
+    return write(
+        path,
+        Node("a", base=0.0),
+        Node("b", base=0.0),
+        Node("T", base=0.5),
+        relations=(Relation("e", "equivalent", "a", "b"),),
+    )
+
+
+def many_unrelated_extremes(path: Path) -> Path:
+    """``g0``, ``g1`` and ``g2`` have a base of 0, and so have twenty nodes ``u0``..``u19`` no query here uses."""
+    nodes = [Node(f"g{i}", base=0.0) for i in range(3)] + [Node(f"u{i}", base=0.0) for i in range(20)]
+    return write(path, *nodes, Node("T", base=0.5))
+
+
+def combined_remedy_only(path: Path) -> Path:
+    """``a`` is exclusive with ``b`` and with ``Y``, whose base is 1: no single drop, move or removal clears ``--set a``."""
+    return write(
+        path,
+        Node("a", base=0.5),
+        Node("b", base=0.5),
+        Node("Y", base=1.0),
+        Node("T", base=0.5),
+        relations=(Relation("x", "exclusive", "a", "b"), Relation("z", "exclusive", "a", "Y")),
+    )
+
+
 def query_args(kind: str, target: str, items: list[tuple[str, str]]) -> list[str]:
     """Build the arguments of a query from its kind, target and ``(flag, NODE=value)`` items."""
     args = [kind, target, "--draws", "0"]
@@ -247,6 +285,24 @@ CASES = {
         {"must": ["'x'", "drop --given a=true", "remove the exclusive relation 'x'"], "must_not": ["drop any"]},
         "x",
     ),
+    "one-of-several-smallest-drops": (
+        two_broken_exclusives,
+        "conditional",
+        "T",
+        [("--given", "a=true"), ("--given", "b=true"), ("--given", "c=true"), ("--given", "d=true")],
+        GIVEN,
+        {"must": ["drop all of --given a=true, --given c=true", "exclusive relations"], "must_not": ["'x'", "'y'"]},
+        None,
+    ),
+    "equivalent-bases-move-together": (
+        equivalent_impossible_bases,
+        "conditional",
+        "T",
+        [("--given", "a=true")],
+        GIVEN,
+        {"must": ["move all of base:a, base:b"], "must_not": ["drop", "exclusive"]},
+        None,
+    ),
 }
 
 
@@ -261,15 +317,15 @@ def without(items: list[tuple[str, str]], dropped: list[str]) -> list[tuple[str,
     return [item for item in items if f"{item[0]} {item[1]}" not in dropped]
 
 
-def changed(path: Path, softened: set[str] = frozenset(), removed: set[str] = frozenset()) -> Path:
-    """Write a copy of the graph at ``path`` with some parameters moved to 0.4 and some relations removed."""
+def changed(path: Path, softened: set[str] = frozenset(), removed: set[str] = frozenset(), value: float = 0.4) -> Path:
+    """Write a copy of the graph at ``path`` with some parameters moved to ``value`` and some relations removed."""
     graph, copy = load(path), Graph()
     for node in graph.nodes.values():
-        copy.add_node(replace(node, base=Point(0.4)) if f"base:{node.id}" in softened else node)
+        copy.add_node(replace(node, base=Point(value)) if f"base:{node.id}" in softened else node)
     for relation in graph.relations.values():
         if relation.id not in removed:
             soft = f"strength:{relation.id}" in softened
-            copy.add_relation(replace(relation, strength=Point(0.4)) if soft else relation)
+            copy.add_relation(replace(relation, strength=Point(value)) if soft else relation)
     out = path.with_name(f"changed-{len(list(path.parent.iterdir()))}.json")
     dump(copy, out)
     return out
@@ -303,6 +359,8 @@ def test_message_and_hint(cli, tmp_path, name):
     for word in words["must_not"]:
         assert word not in error["hint"], word
     assert error["details"].get("exclusive_relation") == exclusive
+    assert error["details"]["search_truncated"] == []
+    assert "search stopped" not in error["hint"]
 
 
 @pytest.mark.parametrize("name", sorted(CASES))
@@ -357,6 +415,21 @@ def test_move_remedy_on_the_same_command(cli, tmp_path, name):
 
 
 @pytest.mark.parametrize("name", sorted(CASES))
+def test_move_at_any_other_value(cli, tmp_path, name):
+    """Test that 0.5 stands for every value: a parameter not named does not clear the zero at any other value."""
+    make, kind, target, items, _, _, _ = CASES[name]
+    path = make(tmp_path / "g.json")
+    details = cli.error("query", path, *query_args(kind, target, items))["details"]
+    graph = load(path)
+    for parameter in extreme_ids(path):
+        kind_of, key = parameter.split(":")
+        current = (graph.nodes[key].base if kind_of == "base" else graph.relations[key].strength).p
+        for value in (1e-6, 0.999999, 1.0 - current):
+            moved = succeeds(cli, changed(path, softened={parameter}, value=value), kind, target, items)
+            assert moved is (parameter in details["move_any_one_of"]), (parameter, value)
+
+
+@pytest.mark.parametrize("name", sorted(CASES))
 def test_exclusive_remedy_on_the_same_command(cli, tmp_path, name):
     """Test that removing the named exclusive relation makes the same command succeed."""
     make, kind, target, items, _, _, exclusive = CASES[name]
@@ -375,14 +448,49 @@ def test_exclusive_relation_that_is_not_the_cause(cli, tmp_path):
 
 
 def test_no_remedy_found(cli, tmp_path, monkeypatch):
-    """Test that when the search for a remedy runs out, the error says so and offers none."""
+    """Test that when the search for a remedy runs out, the error says so, offers none, and names the cut searches."""
     monkeypatch.setattr(query_module, "SEARCH_BUDGET", 2)
     path = two_impossible_bases(tmp_path / "g.json")
-    error = cli.error("query", path, *query_args("conditional", "B", [("--given", "A=true"), ("--given", "C=true")]))
-    assert error["hint"].endswith("that was tried makes this command succeed")
+    items = [("--given", "A=true"), ("--given", "C=true")]
+    error = cli.error("query", path, *query_args("conditional", "B", items))
+    assert "that was tried makes this command succeed" in error["hint"]
+    assert error["hint"].endswith(
+        "the search stopped after 2 tries of drops of several values and moves of several parameters, "
+        "so one not tried may make it succeed (details.search_truncated)"
+    )
     details = error["details"]
     assert details["drop_any_one_of"] == details["drop_all_of"] == []
     assert details["move_any_one_of"] == details["move_all_of"] == details["extreme_parameters"] == []
+    assert details["search_truncated"] == ["drop", "move"]
+    assert succeeds(cli, changed(path, softened={"base:A", "base:C"}), "conditional", "B", items)
+
+
+def test_truncated_search_is_told_apart_from_no_remedy(cli, tmp_path):
+    """Test a move remedy past the budget: the error says the search stopped, and the remedy does succeed."""
+    path = many_unrelated_extremes(tmp_path / "g.json")
+    items = [("--given", "g0=true"), ("--given", "g1=true"), ("--given", "g2=true")]
+    error = cli.error("query", path, *query_args("conditional", "T", items))
+    assert error["details"]["search_truncated"] == ["move"]
+    assert error["details"]["move_all_of"] == []
+    assert "the search stopped after 256 tries of moves of several parameters" in error["hint"]
+    assert succeeds(cli, changed(path, softened={"base:g0", "base:g1", "base:g2"}), "conditional", "T", items)
+
+
+def test_no_remedy_says_combined_changes_were_not_tried(cli, tmp_path):
+    """Test a query that only a drop together with a move clears: the hint says combinations were not tried."""
+    path = combined_remedy_only(tmp_path / "g.json")
+    items = [("--set", "a=true"), ("--given", "b=true")]
+    error = cli.error("query", path, *query_args("intervene", "T", items))
+    details = error["details"]
+    assert details["search_truncated"] == []
+    assert details["drop_any_one_of"] == details["drop_all_of"] == details["move_all_of"] == []
+    assert "exclusive_relation" not in details
+    assert (
+        "a drop combined with a move or a removal, and the removal of several exclusive relations, were not tried"
+        in (error["hint"])
+    )
+    assert not succeeds(cli, changed(path, softened={"base:Y"}), "intervene", "T", items)
+    assert succeeds(cli, changed(path, softened={"base:Y"}), "intervene", "T", items[:1])
 
 
 @pytest.mark.parametrize(
