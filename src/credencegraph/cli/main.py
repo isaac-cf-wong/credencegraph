@@ -84,9 +84,18 @@ def main(
 
 def register_commands() -> None:
     """Register CLI commands."""
+    from credencegraph.cli.diagnose import check_command, diagnose_command
+    from credencegraph.cli.edit import add_node_command, init_command, relate_command
+    from credencegraph.cli.query import query_command
     from credencegraph.cli.version import version_command
 
     app.command(name="version")(version_command)
+    app.command(name="init")(init_command)
+    app.command(name="add-node")(add_node_command)
+    app.command(name="relate")(relate_command)
+    app.command(name="query")(query_command)
+    app.command(name="diagnose")(diagnose_command)
+    app.command(name="check")(check_command)
 
 
 register_commands()
