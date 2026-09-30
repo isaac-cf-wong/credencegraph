@@ -154,7 +154,7 @@ def sensitivity_findings(network: Network, target: str, slopes: Mapping[Paramete
             Finding(
                 id=f"{SENSITIVITY}:{key.kind}:{key.id}",
                 diagnostic=SENSITIVITY,
-                message=f"P({target}) changes by {slope:+.3g} per unit change in {phrase}",
+                message=f"P({target!r}) changes by {slope:+.3g} per unit change in {phrase}",
                 nodes=nodes,
                 relations=relations,
                 value=slope,
@@ -185,7 +185,7 @@ def crux_findings(network: Network, target: str, slopes: Mapping[ParameterKey, f
                 id=f"{CRUX}:{key.kind}:{key.id}",
                 diagnostic=CRUX,
                 message=(
-                    f"crux {score:.3g} for {phrase}: P({target}) moves {abs(slope):.3g} per unit of it "
+                    f"crux {score:.3g} for {phrase}: P({target!r}) moves {abs(slope):.3g} per unit of it "
                     f"and its standard deviation is {sd:.3g}"
                 ),
                 nodes=nodes,
@@ -295,7 +295,7 @@ def single_points_of_failure(
             Finding(
                 id=f"{SINGLE_POINT_OF_FAILURE}:{name}",
                 diagnostic=SINGLE_POINT_OF_FAILURE,
-                message=f"if {name!r} is false, P({target}) falls from {baseline:.3g} to {value:.3g}",
+                message=f"if {name!r} is false, P({target!r}) falls from {baseline:.3g} to {value:.3g}",
                 nodes=members,
                 value=value,
                 details={"baseline": baseline, "threshold": limit},

@@ -103,3 +103,42 @@ def test_finding_to_dict():
     }
     with pytest.raises(TypeError):
         finding.details["sd"] = 1.0  # type: ignore[index]
+
+
+# Characters that ``str.splitlines`` treats as line breaks, placed inside node and relation ids.
+BREAKS = "\n\r\x0b\x0c\x1c\x1d\x1e\x85\u2028\u2029"
+
+
+def test_messages_stay_on_one_line_whatever_the_ids():
+    """Test that ids containing line breaks cannot split the message of any diagnostic.
+
+    Every id below carries every character ``str.splitlines`` breaks on. The first graph compiles
+    and yields every inferential diagnostic; the second is missing a base and a strength.
+    """
+    premise, target, low = f"premise{BREAKS}p", f"target{BREAKS}t", f"low{BREAKS}l"
+    graph = Graph()
+    graph.add_node(Node(premise, base=Beta(6, 4)))
+    graph.add_node(Node(target, base=0.3, stated=0.9))
+    graph.add_node(Node(low, base=0.8, stated=0.1, sources=[ANCHOR]))
+    graph.add_relation(Relation(f"needs{BREAKS}r", "requires", premise, target, strength=Beta(8, 2)))
+    findings = diagnose(graph, target)
+
+    broken = Graph()
+    broken.add_node(Node(premise, base=0.5))
+    broken.add_node(Node(target))
+    relation = broken.add_relation(Relation(f"needs{BREAKS}r", "supports", premise, target, strength=0.5))
+    object.__setattr__(relation, "strength", None)
+    findings += diagnose(broken, target)
+
+    assert {f.diagnostic for f in findings} == {
+        "missing-parameter",
+        "unanchored",
+        "overclaim",
+        "underclaim",
+        "sensitivity",
+        "crux",
+        "single-point-of-failure",
+        "value-of-information",
+    }
+    for finding in findings:
+        assert len(finding.message.splitlines()) == 1, finding.message
