@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import replace
+from itertools import combinations
 from typing import Annotated
 
 import typer
@@ -29,9 +32,13 @@ from credencegraph.inference.errors import ZeroProbabilityError
 from credencegraph.inference.queries import Answer, conditional, intervene, joint, marginal
 from credencegraph.inference.uncertainty import DEFAULT_DRAWS
 from credencegraph.semantics.compiler import compile_graph
+from credencegraph.semantics.errors import CompileError
 from credencegraph.semantics.network import Network
 
 KINDS = ("marginal", "joint", "conditional", "intervene")
+
+# The most changes tried in search of a remedy of more than one value or parameter.
+SEARCH_BUDGET = 256
 
 
 def _check_shape(kind: str, target: dict[str, bool], given: dict[str, bool], setting: dict[str, bool]) -> None:
@@ -129,6 +136,52 @@ def _fails(
     return False
 
 
+def _smallest(count: int, clears: Callable[[tuple[int, ...]], bool]) -> tuple[list[int], list[int]]:
+    """Find the smallest changes that clear a failure, by trying them.
+
+    Args:
+        count: The number of candidate changes.
+        clears: Tells whether making the changes at the given indices clears the failure.
+
+    Returns:
+        The indices that clear it one at a time, or, when none does, the first smallest set that clears
+        it together. Both are empty when nothing tried within ``SEARCH_BUDGET`` tries clears it.
+    """
+    any_one = [i for i in range(count) if clears((i,))]
+    if any_one:
+        return any_one, []
+    tries = count
+    for size in range(2, count + 1):
+        for group in combinations(range(count), size):
+            if tries >= SEARCH_BUDGET:
+                return [], []
+            tries += 1
+            if clears(group):
+                return [], list(group)
+    return [], []
+
+
+def _rebuilt(graph: Graph, removed: frozenset[str] = frozenset(), softened: frozenset[str] = frozenset()) -> Graph:
+    """Copy a graph without some relations, and with some bases or strengths moved to 0.5.
+
+    Args:
+        graph: The graph.
+        removed: The ids of the relations to leave out.
+        softened: The parameters to move to 0.5, as ``base:<node>`` or ``strength:<relation>``.
+
+    Returns:
+        The copy.
+    """
+    copy = Graph()
+    for node in graph.nodes.values():
+        copy.add_node(replace(node, base=Point(0.5)) if f"base:{node.id}" in softened else node)
+    for relation in graph.relations.values():
+        if relation.id not in removed:
+            soft = f"strength:{relation.id}" in softened
+            copy.add_relation(replace(relation, strength=Point(0.5)) if soft else relation)
+    return copy
+
+
 def _extreme_parameters(graph: Graph) -> list[dict[str, object]]:
     """List the bases and strengths that are exactly 0 or 1.
 
@@ -148,21 +201,8 @@ def _extreme_parameters(graph: Graph) -> list[dict[str, object]]:
     return extreme
 
 
-def _without_exclusive(graph: Graph) -> Graph:
-    """Copy a graph without its ``exclusive`` relations."""
-    copy = Graph()
-    for node in graph.nodes.values():
-        copy.add_node(node)
-    for relation in graph.relations.values():
-        if relation.type != EXCLUSIVE:
-            copy.add_relation(relation)
-    return copy
-
-
-def _broken_exclusive(
-    graph: Graph, network: Network, items: list[tuple[str, str, bool]]
-) -> tuple[str, str, str] | None:
-    """Find an ``exclusive`` relation whose two propositions the passed values both make true.
+def _broken_exclusive(graph: Graph, network: Network, items: list[tuple[str, str, bool]]) -> list[tuple[str, str, str]]:
+    """Find the ``exclusive`` relations whose two propositions the passed values both make true.
 
     Args:
         graph: The graph.
@@ -170,41 +210,95 @@ def _broken_exclusive(
         items: The passed values as ``(flag, node id, value)``.
 
     Returns:
-        The relation id and the two items, written ``FLAG NODE=value``, or ``None``.
+        The relation id and the two items, written ``FLAG NODE=value``, for each, in graph order.
     """
     true = {}
     for flag, node_id, value in items:
         if value:
             true.setdefault(network.index(node_id), f"{flag} {_item(node_id, value)}")
+    broken = []
     for relation in graph.relations.values():
         if relation.type != EXCLUSIVE:
             continue
         ends = network.index(relation.source), network.index(relation.target)
         if all(end in true for end in ends):
-            return relation.id, true[ends[0]], true[ends[1]]
-    return None
+            broken.append((relation.id, true[ends[0]], true[ends[1]]))
+    return broken
 
 
-def _impossible(graph: Graph, network: Network, query: Query, error: ZeroProbabilityError) -> CliError:
-    """Explain a query whose evidence has probability zero by its cause, with a remedy that is checked.
+def _either(words: list[str]) -> str:
+    """Write ``words`` as one choice: ``x`` or ``any one of x, y``."""
+    return words[0] if len(words) == 1 else f"any one of {', '.join(words)}"
 
-    With nothing passed, or when the query fails without its ``--given`` and ``--set`` values, the
-    cause is the graph. Otherwise the passed values are the cause, and either they make both
-    propositions of an ``exclusive`` relation true, or, since every world has positive probability
-    when every base and strength lies strictly between 0 and 1, some base or strength is exactly 0 or
-    1; those are listed, and exclusive relations are mentioned only when the query succeeds without them.
-    The remedy lists only values whose removal was tried and makes the query succeed.
+
+def _split(items: list[tuple[str, str, bool]]) -> tuple[dict[str, bool], dict[str, bool]]:
+    """Split passed values, as ``(flag, node id, value)``, into the ``--given`` and the ``--set`` values."""
+    return {n: v for flag, n, v in items if flag == "--given"}, {n: v for flag, n, v in items if flag == "--set"}
+
+
+def _failing_values(
+    graph: Graph, network: Network, target: dict[str, bool], items: list[tuple[str, str, bool]]
+) -> tuple[str, str]:
+    """Name the flags whose values fail, and what they fail under, by re-running the query.
+
+    A flag is named when the query fails with its values alone; when no flag's values fail alone,
+    all of them fail together. Exclusive relations are named as part of the context only when the
+    named values succeed without them.
 
     Args:
+        graph: The graph.
+        network: The compiled network.
+        target: The target.
+        items: The passed values as ``(flag, node id, value)``.
+
+    Returns:
+        The error message, and the cause for the hint.
+    """
+    flags = [flag for flag in ("--given", "--set") if any(item[0] == flag for item in items)]
+    groups = {flag: [item for item in items if item[0] == flag] for flag in flags}
+    named = [(flag, group) for flag, group in groups.items() if _fails(network, target, *_split(group))]
+    if len(named) > 1:
+        message = "the --given values and the --set values each have probability zero, so the query has no answer"
+    elif named:
+        message = f"the {named[0][0]} values have probability zero, so the query has no answer"
+    else:
+        named = [(" and ".join(flags), items)]
+        message = f"the {named[0][0]} values have probability zero together, so the query has no answer"
+    exclusive = frozenset(r.id for r in graph.relations.values() if r.type == EXCLUSIVE)
+    loose = compile_graph(_rebuilt(graph, removed=exclusive)) if exclusive else network
+    causes = []
+    for flag, group in named:
+        uses_exclusive = exclusive and not _fails(loose, target, *_split(group))
+        context = "the graph's credences and exclusive relations" if uses_exclusive else "the graph's credences"
+        causes.append(f"the {flag} values have probability zero under {context}")
+    return message, "; ".join(causes)
+
+
+def _impossible(kind: str, graph: Graph, network: Network, query: Query, error: ZeroProbabilityError) -> CliError:
+    """Explain a query whose evidence has probability zero by its cause, with remedies that are checked.
+
+    With nothing passed, or when the query fails without its ``--given`` and ``--set`` values, the
+    cause is the graph. Otherwise every cause and every remedy named is established by re-running
+    this same command, of the same kind, with something changed: a flag is named when its values fail
+    on their own (or all flags, when only together they fail), an ``exclusive`` relation when the
+    passed values make both its propositions true and removing it makes the command succeed, values
+    to drop when dropping them does, and bases or strengths when moving them off 0 and 1 does. A drop
+    that leaves the command ill-formed, such as an ``intervene`` query without ``--set``, is no remedy.
+
+    Args:
+        kind: The kind of query.
         graph: The graph.
         network: The compiled network.
         query: The query.
         error: The engine's error.
 
     Returns:
-        A ``zero-probability`` error. Its details hold ``extreme_parameters``, and either
-        ``drop_any_one_of`` (removing any one of those values makes the query succeed) or
-        ``drop_all_of`` (removing all of them does), with ``exclusive_relation`` when one is broken.
+        A ``zero-probability`` error. Its details hold ``drop_any_one_of`` (dropping any one of those
+        values makes the command succeed) or ``drop_all_of`` (dropping all of them does),
+        ``move_any_one_of`` or ``move_all_of`` for the bases and strengths at 0 or 1 whose move does,
+        ``extreme_parameters`` for those parameters with their values, and ``exclusive_relation`` when
+        removing one relation the passed values break does. Each list is empty when no such remedy
+        was found.
     """
     target = dict(query.target)
     items = [("--given", n, v) for n, v in query.evidence.items()] + [
@@ -213,64 +307,53 @@ def _impossible(graph: Graph, network: Network, query: Query, error: ZeroProbabi
     if not items or _fails(network, target, {}, {}):
         return CliError(ZERO_PROBABILITY, str(error), IMPOSSIBLE_GRAPH_HINT)
     labels = [f"{flag} {_item(node_id, value)}" for flag, node_id, value in items]
-    passed = " and ".join(flag for flag in ("--given", "--set") if any(item[0] == flag for item in items))
-    message = f"the {passed} values have probability zero together, so the query has no answer"
 
-    def fails_keeping(keep: list[int]) -> bool:
-        kept = [items[i] for i in keep]
-        return _fails(
-            network,
-            target,
-            {n: v for flag, n, v in kept if flag == "--given"},
-            {n: v for flag, n, v in kept if flag == "--set"},
-        )
+    def drop_clears(dropped: tuple[int, ...]) -> bool:
+        kept = _split([item for i, item in enumerate(items) if i not in dropped])
+        try:
+            _check_shape(kind, target, *kept)
+        except CliError:
+            return False
+        return not _fails(network, target, *kept)
 
-    everything = range(len(items))
-    any_one = [labels[i] for i in everything if not fails_keeping([j for j in everything if j != i])]
-    all_of: list[str] = []
-    if not any_one:
-        for flag in ("--given", "--set"):
-            group = [i for i in everything if items[i][0] == flag]
-            if group and not fails_keeping([i for i in everything if i not in group]):
-                all_of = [labels[i] for i in group]
-                break
-        else:
-            all_of = labels
-    remedy = (
-        f"drop {any_one[0]}"
-        if len(any_one) == 1
-        else f"drop any one of {', '.join(any_one)}"
-        if any_one
-        else f"drop all of {', '.join(all_of)}"
+    def succeeds_on(changed: Graph) -> bool:
+        try:
+            return not _fails(compile_graph(changed), target, *_split(items))
+        except CompileError:
+            return False
+
+    any_drop, all_drop = _smallest(len(items), drop_clears)
+    extreme = _extreme_parameters(graph)
+    any_move, all_move = _smallest(
+        len(extreme), lambda group: succeeds_on(_rebuilt(graph, softened=frozenset(extreme[i]["id"] for i in group)))
     )
+    drops = [labels[i] for i in any_drop or all_drop]
+    moves = [str(extreme[i]["id"]) for i in any_move or all_move]
     details: dict[str, object] = {
-        "extreme_parameters": _extreme_parameters(graph),
-        "drop_any_one_of": any_one,
-        "drop_all_of": all_of,
+        "extreme_parameters": [extreme[i] for i in any_move or all_move],
+        "drop_any_one_of": drops if any_drop else [],
+        "drop_all_of": drops if all_drop else [],
+        "move_any_one_of": moves if any_move else [],
+        "move_all_of": moves if all_move else [],
     }
-    broken = _broken_exclusive(graph, network, items)
-    if broken is not None:
-        relation, first, second = broken
-        details["exclusive_relation"] = relation
-        return CliError(
-            ZERO_PROBABILITY,
-            message,
-            f"{first} and {second} make both propositions of the exclusive relation {relation!r} true; {remedy}",
-            details,
-        )
-    responsible = any_one or all_of
-    flags = " and ".join(flag for flag in ("--given", "--set") if any(label.startswith(flag) for label in responsible))
-    uses_exclusive = any(r.type == EXCLUSIVE for r in graph.relations.values()) and not _fails(
-        compile_graph(_without_exclusive(graph)), target, dict(query.evidence), dict(query.interventions)
+    remedies = []
+    if drops:
+        remedies.append(f"drop {_either(drops)}" if any_drop else f"drop all of {', '.join(drops)}")
+    message, cause = _failing_values(graph, network, target, items)
+    for relation, first, second in _broken_exclusive(graph, network, items):
+        if succeeds_on(_rebuilt(graph, removed=frozenset([relation]))):
+            details["exclusive_relation"] = relation
+            cause = f"{first} and {second} make both propositions of the exclusive relation {relation!r} true"
+            remedies.append(f"remove the exclusive relation {relation!r}")
+            break
+    if moves:
+        which = _either(moves) if any_move else f"all of {', '.join(moves)}"
+        remedies.append(f"move {which} off 0 and 1 (details.extreme_parameters)")
+    remedy = ", or ".join(remedies) or (
+        "no drop of passed values, and no move of bases or strengths off 0 and 1, that was tried makes this "
+        "command succeed"
     )
-    context = "the graph's credences and exclusive relations" if uses_exclusive else "the graph's credences"
-    return CliError(
-        ZERO_PROBABILITY,
-        message,
-        f"the {flags} values have probability zero under {context}, which needs a base or strength of exactly 0 or 1 "
-        f"(listed in details.extreme_parameters); {remedy}, or move every listed parameter off 0 and 1",
-        details,
-    )
+    return CliError(ZERO_PROBABILITY, message, f"{cause}; {remedy}", details)
 
 
 def query_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to each option
@@ -330,7 +413,7 @@ def query_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to each 
             else:
                 answer = joint(network, target, **options)
         except ZeroProbabilityError as error:
-            raise _impossible(graph, network, query, error) from None
+            raise _impossible(kind, graph, network, query, error) from None
         payload = {
             "path": str(path),
             "kind": kind,

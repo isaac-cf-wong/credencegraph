@@ -112,16 +112,25 @@ so the query has no answer. The command works out the cause:
 - If the query fails without its `--given` and `--set` values, or none were
   passed, as with `diagnose`, the cause is the graph: no world satisfies every
   `exclusive` relation, which needs a base or strength of exactly 0 or 1.
-- Otherwise the passed values are the cause. Either they make both
-  propositions of an `exclusive` relation true, named in
-  `details.exclusive_relation`, or they have probability zero under the graph's
-  credences, which needs a base or strength of exactly 0 or 1. Every such
-  parameter is listed in `details.extreme_parameters`, as `base:NODE` or
-  `strength:RELATION`. In that second case, the hint mentions exclusive
-  relations only when the query succeeds without them.
-- The remedy names only values that were tried: removing any one of
-  `details.drop_any_one_of` makes the query succeed, or, when no single value
-  does, removing all of `details.drop_all_of` does.
+- Otherwise the passed values are the cause, and everything the error names is
+  established by running the same command, of the same kind, with that one
+  thing changed. The message names a flag when the query fails with that
+  flag's values alone, or both flags when only their values together fail. The
+  hint names an `exclusive` relation, in `details.exclusive_relation`, only when
+  the passed values make both of its propositions true and removing the
+  relation makes the command succeed; otherwise it mentions exclusive relations
+  only when the named values succeed without them.
+- The remedies name only changes that were tried and make the command
+  succeed. Dropping any one of `details.drop_any_one_of` does, or, when no
+  single value does, dropping all of `details.drop_all_of`, the smallest such
+  set found. A drop that leaves the command ill-formed, such as an `intervene`
+  query without `--set`, is not offered. Moving any one of
+  `details.move_any_one_of` off 0 and 1 does too, or all of
+  `details.move_all_of`; those parameters are listed with their values in
+  `details.extreme_parameters`, as `base:NODE` or `strength:RELATION`, and a
+  base or strength at 0 or 1 that does not bear on the query is not listed.
+  Each list is empty when no such change was found; when none is, the hint
+  says so.
 
 Values that contradict each other outright are refused before any inference, as
 an `invalid-argument`: two equivalent nodes given different values by `--given`
