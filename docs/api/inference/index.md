@@ -30,8 +30,8 @@ Two exact engines are provided:
 
 ## Parameter uncertainty
 
-Every `base` and `strength` is treated as independent of the others. An
-`Answer` carries:
+Every `base` and `strength` is treated as independent of the others. An `Answer`
+carries:
 
 - `point`: the probability with every parameter at its credence mean. Because
   each parameter enters a joint probability with degree at most one, this is
