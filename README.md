@@ -85,6 +85,25 @@ and ranks `signal` as the premise most worth resolving. A node's `stated`
 credence, the confidence its source asserts, is compared with the credence its
 premises deliver, and a gap above 0.1 is reported as an overclaim or underclaim.
 
+## Command line
+
+The same graph can be built and queried from the shell. Every command takes
+`--json` and then prints a single JSON object, including on failure, where it
+carries a stable error `code`, a message and a hint.
+
+```bash
+credencegraph init g.json
+credencegraph add-node g.json --id calibrated --base 0.9
+credencegraph add-node g.json --id signal --base 0.05
+credencegraph add-node g.json --id claim --base 0.1
+credencegraph relate g.json calibrated signal --type requires --strength 1
+credencegraph relate g.json signal claim --type supports --strength beta:8,2
+credencegraph check g.json
+credencegraph query g.json marginal claim --json
+credencegraph query g.json intervene claim --set calibrated=false
+credencegraph diagnose g.json --target claim --json
+```
+
 ## License
 
 BSD 3-Clause. See [LICENSE](LICENSE).
