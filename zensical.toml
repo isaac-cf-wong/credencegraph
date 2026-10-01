@@ -47,6 +47,7 @@ Copyright &copy; 2026 Isaac C. F. Wong
 nav = [
   { "Get Started" = "index.md" },
   { "Command line" = "cli.md" },
+  { "Worked example" = "worked-example.md" },
   { "API" = [
     { "Overview" = "api/index.md" },
     { "Core" = "api/core/index.md" },
