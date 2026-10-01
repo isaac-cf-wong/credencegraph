@@ -22,7 +22,7 @@ dependencies = ["numpy>=2.2", "typer>=0.26.8"]
 [dependency-groups]
 dev = [
   "ruff>=0.16.9",
-  "prek>=0.5.3",
+  "prek>=0.5.4",
   "pytest-github-actions-annotate-failures>=0.4.2",
   "pytest-cov>=7.1.0",
   "pytest-mock>=3.16.0",
@@ -30,7 +30,7 @@ dev = [
   "mutmut>=3.8.0",
   "zizmor>=1.30.1",
   "jsonschema>=4.26.0",
-  "hypothesis>=6.168.2",
+  "hypothesis>=6.168.3",
 ]
 docs = ["zensical>=0.0.65", "mkdocstrings-python>=2.0.9"]
 build = ["hatch>=1.18.1"]
