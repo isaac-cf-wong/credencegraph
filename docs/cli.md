@@ -136,12 +136,16 @@ so the query has no answer. The command works out the cause:
   0 or 1, such as 0.9999999999999999, can round a probability to zero, and is
   not listed as one to move.
 - The search is bounded. Drops, moves and the removal of one exclusive
-  relation are tried separately, never combined, and the search for several
-  values to drop, or several parameters to move, stops after 256 tries. Each
-  list is empty when no such change was found. When none is, the hint says
-  so and that combined changes were not tried. When a search stops at 256
-  tries, `details.search_truncated` names it, `drop` or `move`, and the hint
-  says a change not tried may still make the command succeed.
+  relation are tried separately, never combined. Every single drop and every
+  single move is tried; when none succeeds, sets of two, three and so on are
+  tried, up to 256 sets for the drops and 256 for the moves. Each list is
+  empty when no such change was found. When none is, the hint says so and
+  that combined changes were not tried. `details.search_tries` gives, for
+  `drop` and `move`, the number of `single` changes and of sets of `several`
+  tried, and, when that search stopped at 256 sets, `stopped_at`: the size of
+  the first set it left untried. Such a search is named in
+  `details.search_truncated`, and the hint says what it tried and that a set
+  not tried may still make the command succeed.
 
 Values that contradict each other outright are refused before any inference, as
 an `invalid-argument`: two equivalent nodes given different values by `--given`

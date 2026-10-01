@@ -37,7 +37,7 @@ from credencegraph.semantics.network import Network
 
 KINDS = ("marginal", "joint", "conditional", "intervene")
 
-# The most changes tried in search of a remedy of more than one value or parameter.
+# The most sets of two or more changes tried in search of a remedy; single changes are all tried.
 SEARCH_BUDGET = 256
 
 
@@ -136,10 +136,11 @@ def _fails(
     return False
 
 
-def _smallest(count: int, clears: Callable[[tuple[int, ...]], bool]) -> tuple[list[int], list[int], bool]:
+def _smallest(count: int, clears: Callable[[tuple[int, ...]], bool]) -> tuple[list[int], list[int], dict[str, int]]:
     """Find the smallest changes that clear a failure, by trying them.
 
-    Every single change is tried, then sets of two, three and so on, until ``SEARCH_BUDGET`` tries.
+    Every single change is tried. When none clears the failure, sets of two, three and so on are
+    tried, up to ``SEARCH_BUDGET`` sets.
 
     Args:
         count: The number of candidate changes.
@@ -147,21 +148,22 @@ def _smallest(count: int, clears: Callable[[tuple[int, ...]], bool]) -> tuple[li
 
     Returns:
         The indices that clear it one at a time, or, when none does, the first smallest set that clears
-        it together, and whether the search stopped at ``SEARCH_BUDGET`` with sets left untried. The
-        lists are both empty when nothing tried clears it.
+        it together; and what was tried: ``single`` and ``several`` count the single changes and the sets
+        tried, and ``stopped_at``, present only when the search stopped at ``SEARCH_BUDGET``, is the size
+        of the first set left untried. The lists are both empty when nothing tried clears it.
     """
     any_one = [i for i in range(count) if clears((i,))]
+    tried = {"single": count, "several": 0}
     if any_one:
-        return any_one, [], False
-    tries = count
+        return any_one, [], tried
     for size in range(2, count + 1):
         for group in combinations(range(count), size):
-            if tries >= SEARCH_BUDGET:
-                return [], [], True
-            tries += 1
+            if tried["several"] >= SEARCH_BUDGET:
+                return [], [], {**tried, "stopped_at": size}
+            tried["several"] += 1
             if clears(group):
-                return [], list(group), False
-    return [], [], False
+                return [], list(group), tried
+    return [], [], tried
 
 
 def _rebuilt(graph: Graph, removed: frozenset[str] = frozenset(), softened: frozenset[str] = frozenset()) -> Graph:
@@ -288,7 +290,8 @@ def _impossible(kind: str, graph: Graph, network: Network, query: Query, error: 
     to drop when dropping them does, and bases or strengths when moving them off 0 and 1 does. A drop
     that leaves the command ill-formed, such as an ``intervene`` query without ``--set``, is no remedy.
     Drops, moves and the removal of one relation are tried separately, never combined, and a search
-    that stops at ``SEARCH_BUDGET`` says so, so no remedy found does not read as none existing.
+    that stops at ``SEARCH_BUDGET`` sets says so and what it tried, so no remedy found does not read
+    as none existing.
 
     Args:
         kind: The kind of query.
@@ -303,8 +306,9 @@ def _impossible(kind: str, graph: Graph, network: Network, query: Query, error: 
         ``move_any_one_of`` or ``move_all_of`` for the bases and strengths at 0 or 1 whose move does,
         ``extreme_parameters`` for those parameters with their values, and ``exclusive_relation`` when
         removing one relation the passed values break does. Each list is empty when no such remedy
-        was found. ``search_truncated`` lists ``drop`` and ``move`` for the searches that stopped at
-        ``SEARCH_BUDGET`` with larger sets untried.
+        was found. ``search_tries`` holds, for ``drop`` and ``move``, what each search tried, as
+        ``_smallest`` returns it, and ``search_truncated`` lists the searches that stopped at
+        ``SEARCH_BUDGET`` sets with sets left untried.
     """
     target = dict(query.target)
     items = [("--given", n, v) for n, v in query.evidence.items()] + [
@@ -328,20 +332,22 @@ def _impossible(kind: str, graph: Graph, network: Network, query: Query, error: 
         except CompileError:
             return False
 
-    any_drop, all_drop, drops_cut = _smallest(len(items), drop_clears)
+    any_drop, all_drop, drops_tried = _smallest(len(items), drop_clears)
     extreme = _extreme_parameters(graph)
-    any_move, all_move, moves_cut = _smallest(
+    any_move, all_move, moves_tried = _smallest(
         len(extreme), lambda group: succeeds_on(_rebuilt(graph, softened=frozenset(extreme[i]["id"] for i in group)))
     )
     drops = [labels[i] for i in any_drop or all_drop]
     moves = [str(extreme[i]["id"]) for i in any_move or all_move]
-    truncated = [name for name, cut in (("drop", drops_cut), ("move", moves_cut)) if cut]
+    tries = {"drop": drops_tried, "move": moves_tried}
+    truncated = [name for name, tried in tries.items() if "stopped_at" in tried]
     details: dict[str, object] = {
         "extreme_parameters": [extreme[i] for i in any_move or all_move],
         "drop_any_one_of": drops if any_drop else [],
         "drop_all_of": drops if all_drop else [],
         "move_any_one_of": moves if any_move else [],
         "move_all_of": moves if all_move else [],
+        "search_tries": tries,
         "search_truncated": truncated,
     }
     remedies = []
@@ -363,13 +369,31 @@ def _impossible(kind: str, graph: Graph, network: Network, query: Query, error: 
         "removal of several exclusive relations, were not tried"
     )
     if truncated:
-        searched = {"drop": "drops of several values", "move": "moves of several parameters"}
-        what = " and ".join(searched[name] for name in truncated)
-        remedy += (
-            f"; the search stopped after {SEARCH_BUDGET} tries of {what}, so one not tried may make it succeed "
-            "(details.search_truncated)"
-        )
+        stops = "; ".join(_stopped(name, tries[name]) for name in truncated)
+        remedy += f"; {stops}, so a set not tried may make it succeed (details.search_truncated)"
     return CliError(ZERO_PROBABILITY, message, f"{cause}; {remedy}", details)
+
+
+def _stopped(name: str, tried: dict[str, int]) -> str:
+    """Say what a search that stopped at ``SEARCH_BUDGET`` sets tried, as ``_smallest`` counted it.
+
+    Args:
+        name: ``drop`` or ``move``.
+        tried: What the search tried.
+
+    Returns:
+        The account, such as ``the move search tried all 23 single moves, then 256 sets of several
+        parameters, and stopped before trying every set of 3``.
+    """
+    things = {"drop": "values", "move": "parameters"}[name]
+    singles = f"the one single {name}" if tried["single"] == 1 else f"all {tried['single']} single {name}s"
+    count = tried["several"]
+    sets = (
+        f"then {count} {'set' if count == 1 else 'sets'} of several {things}"
+        if count
+        else f"but no set of several {things}"
+    )
+    return f"the {name} search tried {singles}, {sets}, and stopped before trying every set of {tried['stopped_at']}"
 
 
 def query_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to each option

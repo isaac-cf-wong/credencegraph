@@ -127,8 +127,8 @@ def equivalent_impossible_bases(path: Path) -> Path:
 
 
 def many_unrelated_extremes(path: Path) -> Path:
-    """``g0``, ``g1`` and ``g2`` have a base of 0, and so have twenty nodes ``u0``..``u19`` no query here uses."""
-    nodes = [Node(f"g{i}", base=0.0) for i in range(3)] + [Node(f"u{i}", base=0.0) for i in range(20)]
+    """Twenty nodes ``u0``..``u19`` no query here uses have a base of 0, and so have ``g0``, ``g1`` and ``g2``, last."""
+    nodes = [Node(f"u{i}", base=0.0) for i in range(20)] + [Node(f"g{i}", base=0.0) for i in range(3)]
     return write(path, *nodes, Node("T", base=0.5))
 
 
@@ -360,7 +360,8 @@ def test_message_and_hint(cli, tmp_path, name):
         assert word not in error["hint"], word
     assert error["details"].get("exclusive_relation") == exclusive
     assert error["details"]["search_truncated"] == []
-    assert "search stopped" not in error["hint"]
+    assert all("stopped_at" not in tried for tried in error["details"]["search_tries"].values())
+    assert "stopped before trying" not in error["hint"]
 
 
 @pytest.mark.parametrize("name", sorted(CASES))
@@ -447,33 +448,78 @@ def test_exclusive_relation_that_is_not_the_cause(cli, tmp_path):
     assert "exclusive_relation" not in cli.error("query", path, *query_args("conditional", "B", items))["details"]
 
 
+def count_moves(monkeypatch) -> list[int]:
+    """Count the graphs the query command rebuilds with parameters moved, one entry per move tried."""
+    moves, rebuilt = [], query_module._rebuilt
+
+    def counting(graph, removed=frozenset(), softened=frozenset()):
+        if softened:
+            moves.append(len(softened))
+        return rebuilt(graph, removed=removed, softened=softened)
+
+    monkeypatch.setattr(query_module, "_rebuilt", counting)
+    return moves
+
+
 def test_no_remedy_found(cli, tmp_path, monkeypatch):
-    """Test that when the search for a remedy runs out, the error says so, offers none, and names the cut searches."""
-    monkeypatch.setattr(query_module, "SEARCH_BUDGET", 2)
+    """Test a search whose budget leaves no set tried: the error offers nothing and says no set was tried."""
+    monkeypatch.setattr(query_module, "SEARCH_BUDGET", 0)
+    moves = count_moves(monkeypatch)
     path = two_impossible_bases(tmp_path / "g.json")
     items = [("--given", "A=true"), ("--given", "C=true")]
     error = cli.error("query", path, *query_args("conditional", "B", items))
     assert "that was tried makes this command succeed" in error["hint"]
     assert error["hint"].endswith(
-        "the search stopped after 2 tries of drops of several values and moves of several parameters, "
-        "so one not tried may make it succeed (details.search_truncated)"
+        "the drop search tried all 2 single drops, but no set of several values, and stopped before trying every "
+        "set of 2; the move search tried all 2 single moves, but no set of several parameters, and stopped before "
+        "trying every set of 2, so a set not tried may make it succeed (details.search_truncated)"
     )
     details = error["details"]
     assert details["drop_any_one_of"] == details["drop_all_of"] == []
     assert details["move_any_one_of"] == details["move_all_of"] == details["extreme_parameters"] == []
     assert details["search_truncated"] == ["drop", "move"]
+    stopped = {"single": 2, "several": 0, "stopped_at": 2}
+    assert details["search_tries"] == {"drop": stopped, "move": stopped}
+    assert moves == [1, 1]
     assert succeeds(cli, changed(path, softened={"base:A", "base:C"}), "conditional", "B", items)
 
 
-def test_truncated_search_is_told_apart_from_no_remedy(cli, tmp_path):
-    """Test a move remedy past the budget: the error says the search stopped, and the remedy does succeed."""
+def test_truncated_search_is_told_apart_from_no_remedy(cli, tmp_path, monkeypatch):
+    """Test a move remedy past the budget: the error says what the search tried, and the remedy does succeed.
+
+    The 23 parameters at 0 give 23 single moves and 253 pairs, so 256 sets end 3 sets into the triples,
+    long before the last triple, the one that clears the zero.
+    """
+    moves = count_moves(monkeypatch)
     path = many_unrelated_extremes(tmp_path / "g.json")
     items = [("--given", "g0=true"), ("--given", "g1=true"), ("--given", "g2=true")]
     error = cli.error("query", path, *query_args("conditional", "T", items))
-    assert error["details"]["search_truncated"] == ["move"]
-    assert error["details"]["move_all_of"] == []
-    assert "the search stopped after 256 tries of moves of several parameters" in error["hint"]
+    details = error["details"]
+    assert details["search_truncated"] == ["move"]
+    assert details["search_tries"] == {
+        "drop": {"single": 3, "several": 4},
+        "move": {"single": 23, "several": 256, "stopped_at": 3},
+    }
+    assert details["move_all_of"] == []
+    assert sorted(set(moves)) == [1, 2, 3]
+    assert [moves.count(size) for size in (1, 2, 3)] == [23, 253, 3]
+    assert (
+        "the move search tried all 23 single moves, then 256 sets of several parameters, and stopped before trying "
+        "every set of 3, so a set not tried may make it succeed (details.search_truncated)"
+    ) in error["hint"]
     assert succeeds(cli, changed(path, softened={"base:g0", "base:g1", "base:g2"}), "conditional", "T", items)
+
+
+def test_single_changes_do_not_spend_the_budget(cli, tmp_path, monkeypatch):
+    """Test more candidates than the budget: every single change is tried, and the budget still buys a set."""
+    monkeypatch.setattr(query_module, "SEARCH_BUDGET", 1)
+    path = two_impossible_among_four(tmp_path / "g.json")
+    items = [("--given", "A=true"), ("--given", "C=true"), ("--given", "F=true")]
+    details = cli.error("query", path, *query_args("conditional", "B", items))["details"]
+    assert details["drop_all_of"] == ["--given A=true", "--given C=true"]
+    assert details["move_all_of"] == ["base:A", "base:C"]
+    assert details["search_tries"] == {"drop": {"single": 3, "several": 1}, "move": {"single": 2, "several": 1}}
+    assert details["search_truncated"] == []
 
 
 def test_no_remedy_says_combined_changes_were_not_tried(cli, tmp_path):
