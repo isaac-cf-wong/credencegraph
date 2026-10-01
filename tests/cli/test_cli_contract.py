@@ -151,11 +151,11 @@ def test_failure_envelope_in_json(cli, tmp_path, code):
 def test_failure_in_text(cli, tmp_path, code):
     """Test that without ``--json`` each failure prints its message and hint on stderr and nothing on stdout.
 
-    Both runs use one directory, so the text is compared exactly as printed. Its name holds a
-    backslash, which a quoted path escapes, as every Windows path does.
+    Both runs use one directory, so the text is compared exactly as printed. A quoted path escapes
+    each backslash: on Windows those are the separators, and elsewhere the directory's name holds one.
     """
     directory = tmp_path / "back\\slash"
-    directory.mkdir()
+    directory.mkdir(parents=True)
     error = json.loads(provoke(cli, directory, code).stdout)["error"]
     result = provoke(cli, directory, code, as_json=False)
     assert result.exit_code == 1
