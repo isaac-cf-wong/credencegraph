@@ -149,17 +149,19 @@ def test_failure_envelope_in_json(cli, tmp_path, code):
 
 @pytest.mark.parametrize("code", sorted(FAILURES))
 def test_failure_in_text(cli, tmp_path, code):
-    """Test that without ``--json`` each failure prints its message and hint on stderr and nothing on stdout."""
-    (tmp_path / "json").mkdir()
-    (tmp_path / "text").mkdir()
-    error = json.loads(provoke(cli, tmp_path / "json", code).stdout)["error"]
-    result = provoke(cli, tmp_path / "text", code, as_json=False)
+    """Test that without ``--json`` each failure prints its message and hint on stderr and nothing on stdout.
+
+    Both runs use one directory, so the text is compared exactly as printed. Its name holds a
+    backslash, which a quoted path escapes, as every Windows path does.
+    """
+    directory = tmp_path / "back\\slash"
+    directory.mkdir()
+    error = json.loads(provoke(cli, directory, code).stdout)["error"]
+    result = provoke(cli, directory, code, as_json=False)
     assert result.exit_code == 1
     assert result.stdout == ""
     expected = [f"error: {error['message']}"] + ([f"hint: {error['hint']}"] if error["hint"] else [])
-    assert result.stderr.splitlines() == [
-        line.replace(str(tmp_path / "json"), str(tmp_path / "text")) for line in expected
-    ]
+    assert result.stderr.splitlines() == expected
 
 
 def test_every_command_is_covered():

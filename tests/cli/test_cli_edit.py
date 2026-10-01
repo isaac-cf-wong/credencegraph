@@ -255,7 +255,11 @@ class TestRelate:
 
     @pytest.mark.parametrize(
         ("rtype", "hint"),
-        [("equivalent", "drop --strength"), ("cites", "drop --strength"), ("suports", "--type supports")],
+        [
+            ("equivalent", "drop --strength"),
+            ("cites", "drop --strength"),
+            ("suports", "--type supports"),  # typos:disable-line
+        ],
     )
     def test_strength_where_none_is_allowed(self, cli, graph_file, rtype, hint):
         """Test that a strength on a type without one is refused, suggesting the type probably meant."""

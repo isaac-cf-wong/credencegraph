@@ -115,14 +115,14 @@ class TestCheck:
             "nodes": [{"id": "a", "base": 0.5}, {"id": "b", "base": 0.5}],
             "relations": [
                 {"id": "ab", "type": "supports", "source": "a", "target": "b", "strength": 0.5},
-                {"id": "ba", "type": "supports", "source": "b", "target": "a", "strength": 0.5},
+                {"id": "ba", "type": "supports", "source": "b", "target": "a", "strength": 0.5},  # typos:disable-line
             ],
         }
         path = tmp_path / "g.json"
         path.write_text(json.dumps(document))
         error = cli.error("check", path)
         assert error["code"] == "invalid-graph"
-        assert error["details"] == {"cycle": ["b", "a", "b"], "relations": ["ba", "ab"]}
+        assert error["details"] == {"cycle": ["b", "a", "b"], "relations": ["ba", "ab"]}  # typos:disable-line
 
     def test_missing_file(self, cli, tmp_path):
         """Test that a missing graph file is reported."""
