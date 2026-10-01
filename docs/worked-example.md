@@ -20,9 +20,10 @@ answers can be checked by hand.
    result gets the credence the measurement supports; one the paper assumes gets
    a wide Beta, so that the diagnostics can tell "0.5 because nobody knows" from
    "0.5 because it was measured".
-2. **The headline claim's own confidence as `--stated`**, when the paper gives
-   one ("we exclude … at 95% confidence"), so that `diagnose` can compare it
-   with what the encoded argument delivers.
+2. **The source's own credence as `--stated`**, when it says how probable it
+   takes the claim to be, so that `diagnose` can compare that with what the
+   encoded argument delivers. A significance or a confidence level is not such a
+   credence: it is a probability of the data under a model, not of the claim.
 3. **One relation per inferential step**: `requires` for a condition the claim
    cannot do without, `supports` and `refutes` for reasons for and against.
 4. **A common parent for shared causes.** Two results that share an instrument,
@@ -110,7 +111,7 @@ has substantial evidence on both sides.
 
 In September 2011 the OPERA collaboration reported that muon neutrinos sent from
 CERN to the Gran Sasso laboratory, 730 km away, arrived about 60 ns earlier than
-light would have ([arXiv:1109.4897](https://arxiv.org/abs/1109.4897)): a 6.0
+light would have ([arXiv:1109.4897v1](https://arxiv.org/abs/1109.4897v1)): a 6.0
 sigma effect, (v − c)/c ≈ 2.5 × 10⁻⁵. The paper itself claims the measurement,
 not new physics, and asks for independent checks. In 2012 the collaboration
 traced the effect to its timing chain, a badly connected optical fibre among
@@ -132,8 +133,11 @@ The claim that the neutrinos are faster than light, `faster`, has a base of
 two published arguments refute it: the SN1987A neutrinos, which bound the speed
 at much lower energy, and the energy that superluminal neutrinos would lose by
 emitting electron–positron pairs
-([arXiv:1109.6562](https://arxiv.org/abs/1109.6562)). The 6.0 sigma is the
-paper's own confidence in the measurement, so it is `early`'s `stated` credence.
+([arXiv:1109.6562](https://arxiv.org/abs/1109.6562)). The 6.0 sigma is a
+significance: how improbable so large a delay would be if the true delay were
+zero and the paper's error model held. It is not a probability that the early
+arrival is real, and the paper states no such probability, so `early` has no
+`stated` credence.
 
 Every base and strength is one reader's judgement as of late 2011, not a number
 from the paper; the Beta credences mark the ones that reader was least sure of.
@@ -150,12 +154,11 @@ support it gives, 1 − 0.999 · (1 − 0.95 · 0.876) = 0.833 without the refut
 and the two refuters, which leave 1 − 0.99 · 0.7 = 0.307 and 1 − 0.9 · 0.8 =
 0.28 of it: 0.833 · 0.307 · 0.28 = 0.0716.
 
-- **The overclaim is the measurement.** `overclaim:early` reports that the paper
-  states the early arrival at 6.0 sigma but its premises deliver 0.876. The
-  quoted significance is the probability conditional on the timing chain, the
-  baseline and the extraction being right; the graph keeps the chance that one
-  of them is wrong, and the timing chain is the largest of those, as it turned
-  out to be.
+- **The measurement is only as good as its premises.** P(early) = 0.876. The
+  significance is computed within an error model whose systematic budget takes
+  the timing chain, the baseline and the extraction as right; the graph keeps
+  the chance that one of them is wrong, and the timing chain is the largest of
+  those, as it turned out to be.
 - **The crux is the refuters.** The two refuter strengths lead the ranking, with
   cruxes of 0.032 and 0.028, followed by `timing` at 0.0068. The claim depends
   most on how far the low-energy SN1987A bound and the pair-emission argument

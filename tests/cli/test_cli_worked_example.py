@@ -172,8 +172,7 @@ class TestOpera:
         """Test the findings the page discusses."""
         findings = cli.json("diagnose", path, "--target", "faster")["findings"]
         by_id = {finding["id"]: finding for finding in findings}
-        assert "overclaim:early" in by_id
-        assert round(by_id["overclaim:early"]["details"]["computed"], 3) == 0.876
+        assert not [finding for finding in findings if finding["diagnostic"] in {"overclaim", "underclaim"}]
         cruxes = [finding["id"] for finding in findings if finding["diagnostic"] == "crux"]
         assert cruxes[:3] == [
             "crux:strength:sn1987a-refutes-faster",
