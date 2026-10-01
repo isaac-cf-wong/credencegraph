@@ -96,7 +96,8 @@ def check_command(path: GraphPath, as_json: JsonOption = False) -> None:
     """Check that a graph file is valid and can be compiled for inference.
 
     The file must parse as a credencegraph graph: known fields, unique ids, relations between existing
-    nodes, and no cycle among requires, supports and refutes. It must also compile: every inference
+    nodes, no cycle among requires, supports and refutes, and no equivalent or exclusive relation
+    joining a node to itself. It must also compile: every inference
     variable needs a base, and equivalent nodes need the same one. A graph that does not compile is
     reported as a compile-error, with the counts and every finding under details. An unanchored
     variable is reported as a warning and does not fail the check.
