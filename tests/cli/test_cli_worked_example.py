@@ -5,7 +5,10 @@ Every number the page quotes is checked here against a closed form written indep
 
 from __future__ import annotations
 
+import itertools
 import math
+import shlex
+from pathlib import Path
 
 import pytest
 
@@ -130,3 +133,73 @@ class TestVeto:
         """Test the number the page quotes for adding the two reasons as weights of evidence."""
         combined = logit(0.1) + (logit(0.91) - logit(0.1)) + (logit(0.01) - logit(0.1))
         assert round(1 / (1 + math.exp(-combined)), 3) == 0.479
+
+
+SCRIPT = Path(__file__).parents[2] / "docs" / "examples" / "opera.sh"
+
+
+class TestOpera:
+    """The paper encoded on the page, built by replaying its script."""
+
+    @pytest.fixture
+    def path(self, cli, tmp_path, monkeypatch):
+        """Run every ``credencegraph`` command of the script in a temporary directory."""
+        monkeypatch.chdir(tmp_path)
+        lines = SCRIPT.read_text(encoding="utf-8").replace("\\\n", " ").splitlines()
+        commands = [shlex.split(line)[1:] for line in lines if line.startswith("credencegraph ")]
+        assert len(commands) == 19
+        for command in commands:
+            cli.json(*command)
+        return tmp_path / "opera.json"
+
+    def test_claim(self, cli, path):
+        """Test the measurement and the claim against the factorisation the page gives."""
+        timing = 1 - 0.95 * (1 - 0.9)
+        baseline = 1 - 0.95 * (1 - 0.99)
+        extraction = 1 - 0.9 * (1 - (1 - (1 - 0.9) * (1 - 0.8 * 0.95)))
+        early = 0.999 * timing * baseline * extraction
+        support = 1 - (1 - 0.001) * (1 - 0.95 * early)
+        refuters = (1 - 0.99 * 0.7) * (1 - 0.9 * 0.8)
+        assert_close(point(cli, path, "marginal", "early"), early)
+        assert_close(point(cli, path, "marginal", "faster"), support * refuters)
+        assert_close(point(cli, path, "intervene", "faster", "--set", "early=true"), (1 - 0.999 * 0.05) * refuters)
+        assert round(early, 3) == 0.876
+        assert round(support, 3) == 0.833
+        assert round(support * refuters, 4) == 0.0716
+        assert round((1 - 0.999 * 0.05) * refuters, 3) == 0.082
+
+    def test_diagnostics(self, cli, path):
+        """Test the findings the page discusses."""
+        findings = cli.json("diagnose", path, "--target", "faster")["findings"]
+        by_id = {finding["id"]: finding for finding in findings}
+        assert "overclaim:early" in by_id
+        assert round(by_id["overclaim:early"]["details"]["computed"], 3) == 0.876
+        cruxes = [finding["id"] for finding in findings if finding["diagnostic"] == "crux"]
+        assert cruxes[:3] == [
+            "crux:strength:sn1987a-refutes-faster",
+            "crux:strength:pair-emission-refutes-faster",
+            "crux:base:timing",
+        ]
+        assert [round(by_id[crux]["value"], 4) for crux in cruxes[:3]] == [0.0319, 0.0277, 0.0068]
+        failures = {finding["nodes"][0] for finding in findings if finding["diagnostic"] == "single-point-of-failure"}
+        assert failures == {"early", "baseline", "timing", "extraction", "bunched"}
+        assert round(point(cli, path, "intervene", "faster", "--set", "timing=false"), 3) == 0.004
+        assert by_id["value-of-information:bunched"]["value"] == pytest.approx(1.5e-5, rel=0.05)
+        assert round(by_id["value-of-information:timing"]["value"], 3) == 0.009
+
+    def test_log_odds_reading(self, cli, path):
+        """Test the log-odds number the page compares the veto with, summed over the claim's parents."""
+        base, early = 0.001, point(cli, path, "marginal", "early")
+        support = logit(1 - (1 - base) * (1 - 0.95)) - logit(base)
+        against = [(0.99, logit(base * (1 - 0.7)) - logit(base)), (0.9, logit(base * (1 - 0.8)) - logit(base))]
+        total = 0.0
+        for active in itertools.product((0, 1), repeat=3):
+            weight = (early if active[0] else 1 - early) * math.prod(
+                p if on else 1 - p for (p, _), on in zip(against, active[1:], strict=True)
+            )
+            score = (
+                logit(base) + support * active[0] + sum(w * on for (_, w), on in zip(against, active[1:], strict=True))
+            )
+            total += weight / (1 + math.exp(-score))
+        assert round(total, 3) == 0.497
+        assert [round(support, 1), round(against[0][1], 1), round(against[1][1], 1)] == [9.9, -1.2, -1.6]
