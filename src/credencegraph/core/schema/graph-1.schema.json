@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "$id": "https://raw.githubusercontent.com/isaac-cf-wong/credencegraph/main/src/credencegraph/core/schema/graph-1.schema.json",
     "title": "credencegraph graph, format version 1",
-    "description": "Structure and types of a credencegraph document. Unique ids, relations naming existing nodes, and acyclicity of the requires/supports/refutes subgraph are checked when the document is loaded and are not expressible here.",
+    "description": "Structure and types of a credencegraph document. Unique ids, relations naming existing nodes, acyclicity of the requires/supports/refutes subgraph, and the ban on an equivalent or exclusive relation joining a node to itself are checked when the document is loaded and are not expressible here.",
     "type": "object",
     "additionalProperties": false,
     "required": ["format", "version", "nodes", "relations"],

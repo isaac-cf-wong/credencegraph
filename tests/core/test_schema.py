@@ -160,7 +160,7 @@ def test_null_optional_strength_is_valid_for_annotations(validator):
 
 
 def test_document_wide_rules_are_left_to_the_loader(validator):
-    """Test the documented boundary: cycles, dangling ids and duplicates pass the schema, fail the loader."""
+    """Test the documented boundary: cycles, dangling ids, duplicates and self-relations pass the schema, fail the loader."""
     cyc = full_doc()
     cyc["relations"].append({"id": "back", "type": "supports", "source": "h", "target": "e", "strength": 0.5})
     cyc["relations"].append({"id": "loop", "type": "supports", "source": "e", "target": "h", "strength": 0.5})
@@ -172,3 +172,10 @@ def test_document_wide_rules_are_left_to_the_loader(validator):
         assert validator.is_valid(doc)
         with pytest.raises(CredenceGraphError):
             graph_from_dict(doc)
+    for index in (3, 4):
+        self_relation = full_doc()
+        rel = self_relation["relations"][index]
+        rel["target"] = rel["source"]
+        assert validator.is_valid(self_relation)
+        with pytest.raises(CredenceGraphError, match=rf"of type '{rel['type']}' joins node 'e' to itself"):
+            graph_from_dict(self_relation)

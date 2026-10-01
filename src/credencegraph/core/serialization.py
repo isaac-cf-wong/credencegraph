@@ -269,9 +269,9 @@ def load(path: str | Path) -> Graph:
 def json_schema() -> dict[str, Any]:
     """Return the JSON Schema for the current format version.
 
-    The schema covers structure and types. Rules that span the document, namely unique ids, relations
-    naming existing nodes, and acyclicity, are enforced when a graph is loaded and cannot be
-    expressed in the schema.
+    The schema covers structure and types. Rules it cannot express, namely unique ids, relations
+    naming existing nodes, acyclicity, and the ban on an ``equivalent`` or ``exclusive`` relation
+    joining a node to itself, are enforced when a graph is loaded.
 
     Returns:
         The schema as a dictionary.
