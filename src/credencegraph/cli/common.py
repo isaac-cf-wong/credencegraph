@@ -140,7 +140,8 @@ def translate(error: CredenceGraphError, command: str | None = None) -> CliError
         return CliError(
             PROBLEM_TOO_LARGE,
             str(error),
-            "the graph is too large for exact inference",
+            "reduce how many relations meet at one node, for example by merging related premises into one; "
+            "from Python, raise max_factor_size on VariableElimination instead",
             {"required": error.required, "limit": error.limit},
         )
     usage = f"'credencegraph {command} --help'" if command else "'credencegraph --help'"
