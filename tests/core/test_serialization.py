@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 
 import pytest
 
@@ -66,6 +67,15 @@ class TestRoundTrip:
         assert loads(dumps(g)) == g
         assert loads(dumps(g, indent=None)) == g
         assert "\n" not in dumps(g, indent=None)
+
+    def test_stored_attributes_cannot_smuggle_a_non_finite_value(self):
+        """Test that a non-finite value cannot be written into stored attributes and reach the output."""
+        g = sample_graph()
+        with pytest.raises(TypeError):
+            g.nodes["h"].attributes["tags"] += (math.nan,)
+        with pytest.raises(TypeError):
+            g.relations["r1"].attributes["w"] = math.inf
+        assert loads(dumps(g)) == g
 
     def test_file_round_trip(self, tmp_path):
         """Test dump then load through a file."""

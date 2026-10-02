@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 
 from credencegraph.core.anchor import SourceAnchor, require_text
-from credencegraph.core.attributes import JSON, copy_attributes
+from credencegraph.core.attributes import FrozenJSON, freeze_attributes
 from credencegraph.core.credence import Credence, as_credence
 from credencegraph.core.errors import ValidationError
 
@@ -18,7 +18,7 @@ class Node:
     """A node of a graph: usually a proposition, but any carried entity.
 
     ``base`` and ``stated`` accept a bare float, read as a ``Point``. ``sources`` accepts any iterable
-    of anchors. ``attributes`` is deep-copied on construction.
+    of anchors. ``attributes`` is deep-copied and frozen on construction.
 
     Attributes:
         id: Stable identifier, unique within the graph.
@@ -27,7 +27,8 @@ class Node:
         sources: Where the proposition came from.
         base: For a node with no inferential parents, its prior credence.
         stated: The credence the source itself asserts, used only by diagnostics.
-        attributes: Open JSON metadata.
+        attributes: Open JSON metadata, stored read-only: objects as read-only mappings, arrays as
+            tuples.
     """
 
     id: str
@@ -36,7 +37,7 @@ class Node:
     sources: tuple[SourceAnchor, ...] = ()
     base: Credence | None = None
     stated: Credence | None = None
-    attributes: dict[str, JSON] = field(default_factory=dict)
+    attributes: Mapping[str, FrozenJSON] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Validate every field and normalise the flexible ones."""
@@ -57,4 +58,4 @@ class Node:
             value = getattr(self, name)
             if value is not None:
                 object.__setattr__(self, name, as_credence(value))
-        object.__setattr__(self, "attributes", copy_attributes(self.attributes, f"Node {self.id!r} attributes"))
+        object.__setattr__(self, "attributes", freeze_attributes(self.attributes, f"Node {self.id!r} attributes"))
