@@ -94,7 +94,8 @@ def sample_parameters(
 
     Parameters are drawn in the order ``network.parameters`` lists them, so a given seed always
     yields the same draws for the same network. ``Point`` parameters are left out: they keep their
-    value in every draw.
+    value in every draw. A ``Beta`` parameter is drawn from its credence even when
+    ``Network.with_parameters`` has set it to another value.
 
     Args:
         network: The network.
@@ -160,7 +161,10 @@ def spread(
     """Estimate how a query's answer spreads over the parameters' credences.
 
     Every ``Beta`` parameter is drawn from its credence, including one that ``Network.with_parameters``
-    has set to another value: the band describes the credences, not the values the network holds.
+    has set to another value: the band describes the credences, not the values the network holds,
+    so an override moves the point answer but not the band. The network does not record which
+    values were overridden, so it cannot hold them fixed; give a parameter a ``Point`` credence to
+    keep it out of the draws.
 
     Args:
         network: The network.
@@ -171,7 +175,8 @@ def spread(
 
     Returns:
         The band and the mean of the per-draw answers, or ``None`` when ``draws`` is 0 or every
-        parameter is a ``Point``, since the answer then cannot move.
+        parameter is a ``Point``, since the answer then cannot move. Overridden values do not count:
+        a network whose every ``Beta`` parameter has been set still gets a band.
 
     Raises:
         ValidationError: If ``draws`` is not a non-negative integer.

@@ -275,6 +275,9 @@ class Network:
     def with_parameters(self, values: Mapping[ParameterKey, float]) -> Network:
         """Return a copy of the network in which some parameters take the given values.
 
+        The credences are unchanged, so the point answer of a query moves but its band, which is
+        drawn from the credences, does not.
+
         Args:
             values: New values by parameter; every other parameter keeps its current value.
 

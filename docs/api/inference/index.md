@@ -50,6 +50,12 @@ parameter is a `Point`, or when `draws=0` is passed. Queries make
 `DEFAULT_DRAWS` (1000) draws by default; pass `rng` (a seed or a
 `numpy.random.Generator`) for reproducible bands.
 
+`Network.with_parameters` moves `point` but not the band. The point answer uses
+the values the network holds, while every `Beta` parameter is drawn from its
+stored credence, including one that has been set to another value; a network
+whose `Beta` parameters have all been set still gets a band. To hold a parameter
+fixed in the band, give it a `Point` credence in the graph instead.
+
 Parameters are independent by construction, so correlated inputs (two
 measurements sharing an unknown bias, say) cannot be expressed as correlated
 strengths. Model the shared cause as a proposition of its own, such as "the
