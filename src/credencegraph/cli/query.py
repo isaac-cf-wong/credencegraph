@@ -248,7 +248,8 @@ def _failing_values(
 
     A flag is named when the query fails with its values alone; when no flag's values fail alone,
     all of them fail together. Exclusive relations are named as part of the context only when the
-    named values succeed without them.
+    named values, under every ``--set`` value passed, succeed without them: ``--given`` values are
+    conditioned on under the intervention, so it can be what makes an exclusive relation bind.
 
     Args:
         graph: The graph.
@@ -271,9 +272,10 @@ def _failing_values(
         message = f"the {named[0][0]} values have probability zero together, so the query has no answer"
     exclusive = frozenset(r.id for r in graph.relations.values() if r.type == EXCLUSIVE)
     loose = compile_graph(_rebuilt(graph, removed=exclusive)) if exclusive else network
+    interventions = _split(items)[1]
     causes = []
     for flag, group in named:
-        uses_exclusive = exclusive and not _fails(loose, target, *_split(group))
+        uses_exclusive = exclusive and not _fails(loose, target, _split(group)[0], interventions)
         context = "the graph's credences and exclusive relations" if uses_exclusive else "the graph's credences"
         causes.append(f"the {flag} values have probability zero under {context}")
     return message, "; ".join(causes)
