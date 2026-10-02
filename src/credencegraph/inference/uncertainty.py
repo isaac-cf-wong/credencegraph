@@ -161,10 +161,11 @@ def spread(
     """Estimate how a query's answer spreads over the parameters' credences.
 
     Every ``Beta`` parameter is drawn from its credence, including one that ``Network.with_parameters``
-    has set to another value: the band describes the credences, not the values the network holds,
-    so an override moves the point answer but not the band. The network does not record which
-    values were overridden, so it cannot hold them fixed; give a parameter a ``Point`` credence to
-    keep it out of the draws.
+    has set to another value: the band describes the ``Beta`` credences, not the values the network
+    holds for them, so overriding a ``Beta`` parameter moves the point answer but not the band. A
+    ``Point`` parameter keeps the value the network holds in every draw, so overriding one moves
+    both. The network does not record which values were overridden, so it cannot hold them fixed;
+    give a parameter a ``Point`` credence to keep it out of the draws.
 
     Args:
         network: The network.

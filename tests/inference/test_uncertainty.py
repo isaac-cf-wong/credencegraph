@@ -272,8 +272,8 @@ class TestBand:
         np.testing.assert_allclose(answer.mean_over_draws, base_c.mean(), rtol=1e-12, atol=0.0)
         np.testing.assert_allclose(answer.band.q50, np.median(base_c), rtol=1e-12, atol=0.0)
 
-    def test_override_moves_the_point_but_not_the_band(self, four_nodes):
-        """Test that with_parameters changes the point answer while the band is still drawn from the credences."""
+    def test_beta_override_moves_the_point_but_not_the_band(self, four_nodes):
+        """Test that overriding Beta parameters changes the point answer while the band is drawn from their credences."""
         overridden = four_nodes.with_parameters({KEYS["a"]: 0.9, KEYS["r"]: 0.1})
         before = conditional(four_nodes, "A", {"D": True}, draws=300, rng=6)
         after = conditional(overridden, "A", {"D": True}, draws=300, rng=6)
