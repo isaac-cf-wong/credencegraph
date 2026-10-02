@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import math
+from dataclasses import replace
 
 import pytest
 
 from credencegraph.core import Beta, Node, Point, Relation, SourceAnchor, ValidationError
+from credencegraph.core.attributes import copy_json
 
 
 class TestSourceAnchor:
@@ -97,7 +99,37 @@ class TestNode:
         attrs = {"k": [1, {"z": 2}]}
         n = Node("a", attributes=attrs)
         attrs["k"][1]["z"] = 99
-        assert n.attributes == {"k": [1, {"z": 2}]}
+        assert n.attributes == {"k": (1, {"z": 2})}
+
+    @pytest.mark.parametrize(
+        "mutate",
+        [
+            lambda attrs: attrs.__setitem__("x", math.nan),
+            lambda attrs: attrs.__delitem__("k"),
+            lambda attrs: attrs["k"][1].__setitem__("z", math.nan),
+            lambda attrs: attrs["k"].append(math.nan),
+        ],
+        ids=["set-top", "delete-top", "set-nested", "append-nested"],
+    )
+    @pytest.mark.parametrize(
+        "make",
+        [
+            lambda attrs: Node("a", attributes=attrs),
+            lambda attrs: Relation("r", "cites", "a", "b", attributes=attrs),
+        ],
+        ids=["node", "relation"],
+    )
+    def test_stored_attributes_refuse_in_place_mutation(self, make, mutate):
+        """Test that the stored attributes cannot be changed in place, at any depth."""
+        obj = make({"k": [1, {"z": 2}]})
+        with pytest.raises((TypeError, AttributeError)):
+            mutate(obj.attributes)
+        assert copy_json(obj.attributes, "attributes") == {"k": [1, {"z": 2}]}
+
+    def test_frozen_attributes_survive_replace(self):
+        """Test that a node rebuilt from its own frozen attributes keeps them."""
+        n = Node("a", attributes={"k": [1, {"z": 2}]})
+        assert replace(n, base=0.5).attributes == n.attributes
 
     @pytest.mark.parametrize(
         "attrs",

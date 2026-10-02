@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
+from types import MappingProxyType
 from typing import Any
 
 from credencegraph.core.errors import ValidationError
@@ -10,9 +12,15 @@ from credencegraph.core.errors import ValidationError
 # A JSON value.
 type JSON = bool | int | float | str | list[JSON] | dict[str, JSON] | None
 
+# A read-only JSON value: arrays are tuples and objects are read-only mappings.
+type FrozenJSON = bool | int | float | str | tuple[FrozenJSON, ...] | Mapping[str, FrozenJSON] | None
+
 
 def copy_json(value: Any, path: str) -> Any:
     """Return a deep copy of ``value`` after checking that it is JSON-representable.
+
+    A ``tuple`` is accepted as an array and any ``Mapping`` as an object, so a frozen copy made by
+    ``freeze_attributes`` can be copied back.
 
     Args:
         value: The candidate JSON value.
@@ -33,7 +41,7 @@ def copy_json(value: Any, path: str) -> Any:
         return value
     if isinstance(value, list | tuple):
         return [copy_json(item, f"{path}[{i}]") for i, item in enumerate(value)]
-    if isinstance(value, dict):
+    if isinstance(value, Mapping):
         out: dict[str, Any] = {}
         for key, item in value.items():
             if not isinstance(key, str):
@@ -45,20 +53,31 @@ def copy_json(value: Any, path: str) -> Any:
     raise ValidationError(msg)
 
 
-def copy_attributes(value: Any, name: str) -> dict[str, JSON]:
-    """Validate an ``attributes`` mapping and return a detached copy.
+def _freeze(value: Any) -> FrozenJSON:
+    """Return a read-only view of a validated JSON value, turning arrays into tuples."""
+    if isinstance(value, list):
+        return tuple(_freeze(item) for item in value)
+    if isinstance(value, dict):
+        return MappingProxyType({key: _freeze(item) for key, item in value.items()})
+    return value
+
+
+def freeze_attributes(value: Any, name: str) -> Mapping[str, FrozenJSON]:
+    """Validate an ``attributes`` mapping and return a detached, read-only copy.
+
+    The copy cannot be changed in place at any depth, so it stays as valid as it was when checked.
 
     Args:
-        value: The candidate mapping.
+        value: The candidate mapping, a ``dict`` or a copy already frozen by this function.
         name: Description of the mapping, used in the error message.
 
     Returns:
-        The deep copy.
+        The deep copy, with objects as read-only mappings and arrays as tuples.
 
     Raises:
         ValidationError: If ``value`` is not a mapping with string keys and JSON values.
     """
-    if not isinstance(value, dict):
+    if not isinstance(value, dict | MappingProxyType):
         msg = f"{name} must be a dict, got {type(value).__name__}"
         raise ValidationError(msg)
-    return copy_json(value, name)
+    return _freeze(copy_json(value, name))

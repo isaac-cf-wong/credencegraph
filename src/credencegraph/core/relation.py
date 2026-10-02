@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 from credencegraph.core.anchor import require_text
-from credencegraph.core.attributes import JSON, copy_attributes
+from credencegraph.core.attributes import FrozenJSON, freeze_attributes
 from credencegraph.core.credence import Credence, as_credence
 from credencegraph.core.errors import ValidationError
 
@@ -51,7 +52,8 @@ class Relation:
         source: Id of the source node.
         target: Id of the target node.
         strength: The relation's strength, per the rules above.
-        attributes: Open JSON metadata.
+        attributes: Open JSON metadata, stored read-only: objects as read-only mappings, arrays as
+            tuples.
     """
 
     id: str
@@ -59,7 +61,7 @@ class Relation:
     source: str
     target: str
     strength: Credence | None = None
-    attributes: dict[str, JSON] = field(default_factory=dict)
+    attributes: Mapping[str, FrozenJSON] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Validate the fields and enforce the strength rules."""
@@ -79,7 +81,7 @@ class Relation:
         if self.type in (EQUIVALENT, EXCLUSIVE) and self.source == self.target:
             msg = f"Relation {self.id!r} of type {self.type!r} joins node {self.source!r} to itself"
             raise ValidationError(msg)
-        object.__setattr__(self, "attributes", copy_attributes(self.attributes, f"Relation {self.id!r} attributes"))
+        object.__setattr__(self, "attributes", freeze_attributes(self.attributes, f"Relation {self.id!r} attributes"))
 
     @property
     def is_inferential(self) -> bool:
