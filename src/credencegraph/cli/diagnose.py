@@ -8,6 +8,7 @@ import typer
 
 from credencegraph.cli.common import (
     INVALID_ARGUMENT,
+    PROBLEM_TOO_LARGE,
     CliError,
     GraphPath,
     JsonOption,
@@ -22,6 +23,8 @@ from credencegraph.diagnostics.records import Finding
 from credencegraph.diagnostics.report import diagnose
 from credencegraph.diagnostics.structure import unanchored
 from credencegraph.diagnostics.weak_points import DEFAULT_FAILURE_THRESHOLD
+from credencegraph.inference.elimination import DEFAULT_MAX_FACTOR_SIZE, VariableElimination
+from credencegraph.inference.errors import ProblemTooLargeError
 from credencegraph.semantics.compiler import compile_graph
 from credencegraph.semantics.errors import CompileError
 
@@ -60,7 +63,7 @@ def _threshold(value: float, option: str) -> float:
     return value
 
 
-def diagnose_command(
+def diagnose_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to each option
     path: GraphPath,
     target: Annotated[
         str | None,
@@ -75,6 +78,9 @@ def diagnose_command(
             help="Report a premise whose failure leaves the target below this fraction of its own probability."
         ),
     ] = DEFAULT_FAILURE_THRESHOLD,
+    max_factor_size: Annotated[
+        int, typer.Option(help="The largest intermediate factor exact inference may build, in table entries.")
+    ] = DEFAULT_MAX_FACTOR_SIZE,
     as_json: JsonOption = False,
 ) -> None:
     """Report the weak points of a graph file and, with --target, of one of its nodes."""
@@ -82,13 +88,33 @@ def diagnose_command(
     def action() -> Result:
         claims_at = _threshold(claim_threshold, "--claim-threshold")
         failures_at = _threshold(failure_threshold, "--failure-threshold")
+        if max_factor_size < 1:
+            raise CliError(
+                INVALID_ARGUMENT,
+                f"--max-factor-size must be 1 or more, got {max_factor_size}",
+                f"the default is {DEFAULT_MAX_FACTOR_SIZE} table entries",
+            )
         graph = read_graph(path)
         if target is not None:
             require_variables(graph, (target,), "--target")
         try:
-            findings = diagnose(graph, target, claim_threshold=claims_at, failure_threshold=failures_at)
+            findings = diagnose(
+                graph,
+                target,
+                claim_threshold=claims_at,
+                failure_threshold=failures_at,
+                engine=VariableElimination(max_factor_size),
+            )
         except CompileError as error:
             raise compile_failure(graph, error) from None
+        except ProblemTooLargeError as error:
+            raise CliError(
+                PROBLEM_TOO_LARGE,
+                str(error),
+                f"the graph is too large for exact inference at this limit; raise it with --max-factor-size, "
+                f"to at least {error.required}",
+                {"required": error.required, "limit": error.limit},
+            ) from None
         payload = {"path": str(path), "target": target, "findings": [finding.to_dict() for finding in findings]}
         return Result(payload, _lines(findings) or ["no findings"])
 
