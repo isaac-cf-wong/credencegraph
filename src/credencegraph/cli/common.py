@@ -326,6 +326,12 @@ def write_graph(graph: Graph, path: Path) -> None:
     directory = path.parent
     try:
         handle, temporary = tempfile.mkstemp(dir=directory, prefix=f".{path.name}.", suffix=".tmp")
+    except FileNotFoundError as error:
+        raise CliError(
+            IO_ERROR,
+            f"cannot write {str(path)!r}: {error}",
+            f"the directory {str(directory)!r} does not exist; create it and run the command again",
+        ) from None
     except OSError as error:
         raise CliError(IO_ERROR, f"cannot write {str(path)!r}: {error}") from None
     try:
