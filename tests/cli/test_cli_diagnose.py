@@ -10,6 +10,7 @@ from _cli import example_graph
 import credencegraph
 from credencegraph.core import Graph, Node, Relation, ValidationError, dump
 from credencegraph.diagnostics import diagnose
+from credencegraph.inference import VariableElimination
 
 
 class TestDiagnose:
@@ -55,6 +56,32 @@ class TestDiagnose:
         """Test that a threshold outside [0, 1] is refused."""
         error = cli.error("diagnose", graph_file, "--target", "claim", option, "1.5")
         assert error["code"] == "invalid-argument"
+
+    def test_max_factor_size_below_one(self, cli, graph_file):
+        """Test that a factor-size limit below 1 is refused."""
+        error = cli.error("diagnose", graph_file, "--target", "claim", "--max-factor-size", "0")
+        assert error["code"] == "invalid-argument"
+        assert "--max-factor-size must be 1 or more" in error["message"]
+
+    def test_max_factor_size_is_raised_from_the_command_line(self, cli, tmp_path):
+        """Test that a diagnosis over the limit fails naming --max-factor-size, and succeeds once it is raised.
+
+        ``child`` rests on four parents, so its weak points need a factor of 16 table entries.
+        """
+        graph = graph_with(
+            *(Node(f"p{i}", base=0.5) for i in range(4)),
+            Node("child", base=0.1),
+            relations=tuple(Relation(f"r{i}", "supports", f"p{i}", "child", strength=0.5) for i in range(4)),
+        )
+        path = tmp_path / "g.json"
+        dump(graph, path)
+        error = cli.error("diagnose", path, "--target", "child", "--max-factor-size", "8")
+        assert error["code"] == "problem-too-large"
+        assert error["details"] == {"required": 16, "limit": 8}
+        assert "raise it with --max-factor-size, to at least 16" in error["hint"]
+        output = cli.json("diagnose", path, "--target", "child", "--max-factor-size", "16")
+        expected = diagnose(graph, "child", engine=VariableElimination(16))
+        assert output["findings"] == [finding.to_dict() for finding in expected]
 
     def test_missing_file(self, cli, tmp_path):
         """Test that a missing graph file is reported."""
