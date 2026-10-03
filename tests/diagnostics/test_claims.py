@@ -138,6 +138,25 @@ def test_every_gap_above_a_tenth_in_probability_is_reported():
         assert [f.diagnostic for f in claims(root(high, low))] == [UNDERCLAIM], (high, low)
 
 
+def test_rounding_allowance_at_the_default():
+    """Test the 1e-12 allowance at the window [0.45, 0.55], where the default is tightest.
+
+    A pair more than 0.1 + 1e-12 apart, which an absolute threshold of 0.1 reports, is reported, and
+    still is with the threshold raised by 3e-12. A pair 1e-13 beyond 0.1 is within the allowance and
+    is not reported. A pair that is reported, with a log-odds gap 1.25e-12 above the default, is
+    dropped by a raise of 5e-13: the allowance moves with the threshold, so a raise smaller than the
+    allowance can still drop a pair.
+    """
+    beyond = root(0.45, 0.55 + 1.1e-12)
+    assert 0.55 + 1.1e-12 - 0.45 > 0.1 + 1e-12
+    assert [f.id for f in claims(beyond)] == ["overclaim:x"]
+    assert [f.id for f in claims(beyond, threshold=DEFAULT_CLAIM_THRESHOLD + 3e-12)] == ["overclaim:x"]
+    assert claims(root(0.45, 0.55 + 1e-13)) == []
+    edge = root(0.45, 0.5500000000003095)
+    assert [f.id for f in claims(edge)] == ["overclaim:x"]
+    assert claims(edge, threshold=DEFAULT_CLAIM_THRESHOLD + 5e-13) == []
+
+
 @pytest.mark.parametrize(("base", "stated"), [(0.45, 0.5500001), (0.44, 0.5405)])
 def test_gap_just_above_a_tenth_near_even_odds_is_reported(base, stated):
     """Test that pairs just over 0.1 apart near 0.5, which a threshold of ln(1.5) would drop, are reported."""

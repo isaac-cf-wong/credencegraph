@@ -86,7 +86,8 @@ credence, the confidence its source asserts, is compared with the credence its
 premises deliver in log-odds, and a gap above 2 ln(11/9) ≈ 0.40 is reported as
 an overclaim or underclaim. That value is the infimum of the log-odds gaps
 between probabilities more than 0.1 apart, approached arbitrarily closely but
-never reached, so every such pair is reported.
+never reached, so every pair that an absolute gap of 0.1 would report is
+reported too, up to a rounding allowance of 1e-12.
 
 ## Command line
 
