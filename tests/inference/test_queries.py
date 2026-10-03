@@ -57,6 +57,18 @@ class TestQueryForms:
         close(marginal(network, "A", False, engine=engine), 1 - P_A)
         close(marginal(network, "C", engine=engine), P_A * 0.6 + (1 - P_A) * 0.2)
 
+    def test_marginal_of_a_tiny_base(self, engine):
+        """Test that P(T) = x b = 5e-16 holds to 1e-12 relative for a base of 1e-15.
+
+        X (base 0.5) ``requires`` T with strength 1, so the leak b reaches P(T) only through the cell
+        where X holds and no support is active.
+        """
+        graph = Graph()
+        graph.add_node(Node("X", base=0.5))
+        graph.add_node(Node("T", base=1e-15))
+        graph.add_relation(Relation("XT", "requires", "X", "T", strength=1.0))
+        close(marginal(compile_graph(graph), "T", engine=engine), 5e-16)
+
     def test_joint_forms(self, network, engine):
         """Test that a joint accepts a mapping or an iterable of ids that are all true."""
         close(joint(network, ["A", "C"], engine=engine), P_A * 0.6)

@@ -77,7 +77,10 @@ def proposition_table(base: float, terms: Sequence[Term], n_parents: int) -> np.
             no_support = no_support * np.where(parent == 1, 1.0 - term.strength, 1.0)
         elif term.type == REFUTES:
             inhibition = inhibition * np.where(parent == 1, 1.0 - term.strength, 1.0)
-    true = necessity * (1.0 - (1.0 - base) * no_support) * inhibition
+    # 1 - (1 - b) * P rewritten as b * P + (1 - P): two non-negative terms, so a tiny base is not
+    # lost to the cancellation of 1 - (1 - b), and with no active support it is exactly b.
+    sufficiency = base * no_support + (1.0 - no_support)
+    true = necessity * sufficiency * inhibition
     return np.stack([1.0 - true, true], axis=-1)
 
 

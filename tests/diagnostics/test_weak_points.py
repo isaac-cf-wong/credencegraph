@@ -160,20 +160,22 @@ class TestSinglePointOfFailure:
         assert finding.value == 0.0
 
     def test_probability_equal_to_threshold_is_not_reported(self, engine):
-        """Test that falling to 0.1 on paper, 1 - 0.9 = 0.09999999999999998 in floating point, is not below 0.1.
+        """Test that falling to 0.28 on paper, 0.27999999999999997 in floating point, is not below 0.28.
 
-        X supports T with strength 0.5 and T's base is 0.1, so do(X = 0) leaves exactly the base; it
-        is flagged once the threshold is raised above it.
+        X supports T with strength 0.5, W (certain) supports T with strength 0.2 and T's base is 0.1,
+        so do(X = 0) leaves 0.1 * 0.8 + 0.2 = 0.28; it is flagged once the threshold is raised above it.
         """
         graph = Graph()
         graph.add_node(Node("X", base=0.5))
+        graph.add_node(Node("W", base=1.0))
         graph.add_node(Node("T", base=0.1))
         graph.add_relation(Relation("XT", "supports", "X", "T", strength=0.5))
+        graph.add_relation(Relation("WT", "supports", "W", "T", strength=0.2))
         network = compile_graph(graph)
-        assert single_points_of_failure(network, "T", engine=engine) == []
-        (finding,) = single_points_of_failure(network, "T", threshold=0.1001, engine=engine)
+        assert single_points_of_failure(network, "T", threshold=0.28, engine=engine) == []
+        (finding,) = single_points_of_failure(network, "T", threshold=0.2801, engine=engine)
         assert finding.id == "single-point-of-failure:X"
-        assert finding.value < 0.1
+        assert finding.value < 0.28
 
     def test_bad_threshold(self, network, engine):
         """Test that a threshold outside [0, 1] is rejected."""
