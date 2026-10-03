@@ -12,12 +12,14 @@ from credencegraph.inference.engine import Engine, Query
 from credencegraph.semantics.compiler import compile_graph
 from credencegraph.semantics.network import Network
 
-# A convention of this package, not something the model determines: odds that differ by more than a
-# factor of 1.5 read as a different claim. The gap is in log-odds rather than probability so that 0.07
-# stated against a computed 0.001 is reported, though it is only 0.069 apart. At even odds the default
-# is a gap of 0.1 in probability, and logit is shallowest there, so any gap of more than 0.1 in
-# probability is also reported. Pass a threshold suited to the text.
-DEFAULT_CLAIM_THRESHOLD = math.log(1.5)
+# A convention of this package, not something the model determines. The gap is in log-odds rather than
+# probability so that 0.07 stated against a computed 0.001 is reported, though it is only 0.069 apart.
+# The default is the smallest log-odds gap that any two probabilities more than 0.1 apart can have, so
+# every such pair is still reported. Over a window [p, p + 0.1], logit(p + 0.1) - logit(p) is convex in
+# p and its derivative vanishes where both ends have the same slope 1 / (p (1 - p)), that is at the
+# window [0.45, 0.55] centred on even odds: 2 ln(0.55 / 0.45) = 2 ln(11 / 9), about 0.401, odds that
+# differ by a factor of (11 / 9)^2, about 1.49. Pass a threshold suited to the text.
+DEFAULT_CLAIM_THRESHOLD = 2 * math.log(0.55 / 0.45)
 
 
 def _log_odds_gap(stated: float, computed: float) -> float:
@@ -78,9 +80,10 @@ def claims(
         network: The network compiled from ``graph``; compiled here when omitted.
         threshold: The largest gap that is not reported, in natural log-odds: ``ln(k)`` reports
             odds that differ by more than a factor of ``k``. A gap within 1e-12 of it counts as equal
-            to it, so rounding cannot tip a finding either way. The default, ``ln(1.5)``, is a
-            convention chosen for this package rather than a value the model fixes; at even odds it
-            is a gap of 0.1 in probability.
+            to it, so rounding cannot tip a finding either way. The default, ``2 ln(11 / 9)``, about
+            0.401, is a convention chosen for this package rather than a value the model fixes: it
+            is the log-odds gap between 0.45 and 0.55, the smallest that any two probabilities more
+            than 0.1 apart can have, so every gap of more than 0.1 in probability is reported.
         engine: The inference engine; variable elimination by default.
 
     Returns:

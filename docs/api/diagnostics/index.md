@@ -10,15 +10,15 @@ Every diagnostic returns a list of `Finding` records. A finding has an `id`
 `nodes` and `relations` involved, a headline `value`, the numbers behind it in
 `details`, and a one-line `message`. `Finding.to_dict()` gives its JSON form.
 
-| Function                   | Reports                                                                |
-| -------------------------- | ---------------------------------------------------------------------- |
-| `missing_parameters`       | An inference variable without a `base`                                 |
-| `unanchored`               | An inference variable with no source and no inferential parent         |
-| `claims`                   | \|logit(stated) − logit(computed)\| above a threshold (default ln 1.5) |
-| `sensitivity`              | ∂P(T)/∂θ for every parameter θ                                         |
-| `crux`                     | \|∂P(T)/∂θ\| · sd(θ): T depends on θ _and_ θ is uncertain              |
-| `single_points_of_failure` | Y with P(T \| do(Y = false)) below a threshold (default 0.1)           |
-| `value_of_information`     | The mutual information I(T; Y) in bits                                 |
+| Function                   | Reports                                                                           |
+| -------------------------- | --------------------------------------------------------------------------------- |
+| `missing_parameters`       | An inference variable without a `base`                                            |
+| `unanchored`               | An inference variable with no source and no inferential parent                    |
+| `claims`                   | \|logit(stated) − logit(computed)\| above a threshold (default 2 ln(11/9) ≈ 0.40) |
+| `sensitivity`              | ∂P(T)/∂θ for every parameter θ                                                    |
+| `crux`                     | \|∂P(T)/∂θ\| · sd(θ): T depends on θ _and_ θ is uncertain                         |
+| `single_points_of_failure` | Y with P(T \| do(Y = false)) below a threshold (default 0.1)                      |
+| `value_of_information`     | The mutual information I(T; Y) in bits                                            |
 
 `diagnose(graph, target)` runs them all. If a parameter is missing the graph
 cannot be compiled, and the report stops after the structural checks.

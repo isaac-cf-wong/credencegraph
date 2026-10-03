@@ -102,9 +102,14 @@ def root(base, stated):
     return graph
 
 
+def test_default_is_the_log_odds_gap_across_the_window_centred_on_even_odds():
+    """Test that the default is logit(0.55) - logit(0.45) = 2 ln(11/9)."""
+    assert math.isclose(DEFAULT_CLAIM_THRESHOLD, 2 * math.log(11 / 9), rel_tol=1e-15, abs_tol=0.0)
+
+
 def test_gap_equal_to_threshold_is_not_reported():
-    """Test that 3/11 against 0.2, odds 0.375 against 0.25, a gap of exactly ln(1.5) on paper, is not reported."""
-    graph = root(0.2, 3 / 11)
+    """Test that 0.55 against 0.45, a gap of exactly the default on paper, is not reported."""
+    graph = root(0.45, 0.55)
     assert claims(graph) == []
     assert [f.id for f in claims(graph, threshold=DEFAULT_CLAIM_THRESHOLD - 1e-6)] == ["overclaim:x"]
 
@@ -121,12 +126,24 @@ def test_order_of_magnitude_on_a_small_probability_is_reported(base, stated, exp
 
 
 def test_every_gap_above_a_tenth_in_probability_is_reported():
-    """Test that the default reports every pair more than 0.1 apart in probability, across [0, 1]."""
-    grid = [i / 200 for i in range(201)]
-    for base in grid:
-        for stated in grid:
-            if abs(stated - base) > 0.1 + 1e-9:
-                assert claims(root(base, stated)) != [], (base, stated)
+    """Test that the default reports every pair 0.1000001 apart, either way round, for a base every 0.0005.
+
+    The windows that come closest to the threshold are those centred on 0.5, and the sweep includes
+    the closest, 0.45 against 0.5500001.
+    """
+    for i in range(1800):
+        low = i / 2000
+        high = low + 0.1000001
+        assert [f.diagnostic for f in claims(root(low, high))] == [OVERCLAIM], (low, high)
+        assert [f.diagnostic for f in claims(root(high, low))] == [UNDERCLAIM], (high, low)
+
+
+@pytest.mark.parametrize(("base", "stated"), [(0.45, 0.5500001), (0.44, 0.5405)])
+def test_gap_just_above_a_tenth_near_even_odds_is_reported(base, stated):
+    """Test that pairs just over 0.1 apart near 0.5, which a threshold of ln(1.5) would drop, are reported."""
+    assert abs(stated - base) > 0.1
+    assert claims(root(base, stated), threshold=math.log(1.5)) == []
+    assert [f.id for f in claims(root(base, stated))] == ["overclaim:x"]
 
 
 @pytest.mark.parametrize(("base", "stated"), [(0.99, 1.0), (0.0, 0.01), (1.0, 0.99)])

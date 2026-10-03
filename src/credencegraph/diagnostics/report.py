@@ -38,7 +38,7 @@ def diagnose(
         graph: The graph.
         target: The id of the node whose weak points are wanted, if any.
         claim_threshold: The threshold passed to ``claims``, a gap in natural log-odds; the default,
-            ``ln(1.5)``, is a convention of this package.
+            ``2 ln(11 / 9)``, is a convention of this package.
         failure_threshold: The threshold passed to ``single_points_of_failure``; the default, 0.1,
             is a convention of this package.
         engine: The exact engine; variable elimination by default.
