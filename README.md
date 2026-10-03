@@ -83,9 +83,10 @@ above it reports, among others, that `calibrated` is an assumption with no
 source, ranks `r2` as the crux — the only uncertain input the claim depends on —
 and ranks `signal` as the premise most worth resolving. A node's `stated`
 credence, the confidence its source asserts, is compared with the credence its
-premises deliver in log-odds, and a gap above 2 ln(11/9) ≈ 0.40, the smallest
-gap any two probabilities more than 0.1 apart can have, is reported as an
-overclaim or underclaim.
+premises deliver in log-odds, and a gap above 2 ln(11/9) ≈ 0.40 is reported as
+an overclaim or underclaim. That value is the infimum of the log-odds gaps
+between probabilities more than 0.1 apart, approached arbitrarily closely but
+never reached, so every such pair is reported.
 
 ## Command line
 
