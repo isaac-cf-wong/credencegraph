@@ -272,6 +272,31 @@ class TestBand:
         np.testing.assert_allclose(answer.mean_over_draws, base_c.mean(), rtol=1e-12, atol=0.0)
         np.testing.assert_allclose(answer.band.q50, np.median(base_c), rtol=1e-12, atol=0.0)
 
+    def test_to_dict(self):
+        """Test the JSON form of an answer with a band."""
+        answer = Answer(0.4, Band(0.1, 0.35, 0.8), 0.42, 100)
+        assert answer.to_dict() == {
+            "point": 0.4,
+            "band": {"q05": 0.1, "q50": 0.35, "q95": 0.8},
+            "mean_over_draws": 0.42,
+            "draws": 100,
+        }
+
+    @pytest.mark.parametrize(
+        "fields",
+        [(Band(0.1, 0.2, 0.3), None, 10), (None, 0.2, 10), (None, None, 10), (Band(0.1, 0.2, 0.3), 0.2, 0)],
+    )
+    def test_answer_fields_come_together(self, fields):
+        """Test that a band, its mean and a positive draw count cannot be given one without the others."""
+        with pytest.raises(ValidationError, match="together"):
+            Answer(0.5, *fields)
+
+    @pytest.mark.parametrize("draws", [-1, 1.5, True, "10"])
+    def test_draws_must_be_a_non_negative_integer(self, four_nodes, draws):
+        """Test that a bad draw count is rejected."""
+        with pytest.raises(ValidationError, match="draws must be a non-negative integer"):
+            marginal(four_nodes, "D", draws=draws)
+
     def test_point_override_moves_the_band(self):
         """Test that overriding a Point parameter moves the band, while overriding a Beta one does not.
 
@@ -297,31 +322,6 @@ class TestBand:
         assert point_overridden.band.q05 > before.band.q95
         assert beta_overridden.point != before.point
         assert (beta_overridden.band, beta_overridden.mean_over_draws) == (before.band, before.mean_over_draws)
-
-    def test_to_dict(self):
-        """Test the JSON form of an answer with a band."""
-        answer = Answer(0.4, Band(0.1, 0.35, 0.8), 0.42, 100)
-        assert answer.to_dict() == {
-            "point": 0.4,
-            "band": {"q05": 0.1, "q50": 0.35, "q95": 0.8},
-            "mean_over_draws": 0.42,
-            "draws": 100,
-        }
-
-    @pytest.mark.parametrize(
-        "fields",
-        [(Band(0.1, 0.2, 0.3), None, 10), (None, 0.2, 10), (None, None, 10), (Band(0.1, 0.2, 0.3), 0.2, 0)],
-    )
-    def test_answer_fields_come_together(self, fields):
-        """Test that a band, its mean and a positive draw count cannot be given one without the others."""
-        with pytest.raises(ValidationError, match="together"):
-            Answer(0.5, *fields)
-
-    @pytest.mark.parametrize("draws", [-1, 1.5, True, "10"])
-    def test_draws_must_be_a_non_negative_integer(self, four_nodes, draws):
-        """Test that a bad draw count is rejected."""
-        with pytest.raises(ValidationError, match="draws must be a non-negative integer"):
-            marginal(four_nodes, "D", draws=draws)
 
 
 class TestSampling:
