@@ -311,6 +311,32 @@ class TestBand:
         with pytest.raises(ValidationError, match="draws must be a non-negative integer"):
             marginal(four_nodes, "D", draws=draws)
 
+    def test_point_override_moves_the_band(self):
+        """Test that overriding a Point parameter moves the band, while overriding a Beta one does not.
+
+        The overridden Point value is kept in every draw, so the band is the one of a graph whose
+        credence is that value; a Beta parameter is still drawn from its credence.
+        """
+
+        def network_with_base_a(base_a):
+            graph = Graph()
+            graph.add_node(Node("A", base=base_a))
+            for name in "BCD":
+                graph.add_node(Node(name, base=CREDENCES[name.lower()]))
+            graph.add_relation(Relation("r", "requires", "A", "C", strength=CREDENCES["r"]))
+            graph.add_relation(Relation("s", "supports", "B", "D", strength=CREDENCES["s"]))
+            graph.add_relation(Relation("f", "refutes", "C", "D", strength=CREDENCES["f"]))
+            return compile_graph(graph)
+
+        network = network_with_base_a(0.25)
+        before = conditional(network, "A", {"D": True}, draws=300, rng=6)
+        point_overridden = conditional(network.with_parameters({KEYS["a"]: 0.9}), "A", {"D": True}, draws=300, rng=6)
+        beta_overridden = conditional(network.with_parameters({KEYS["r"]: 0.1}), "A", {"D": True}, draws=300, rng=6)
+        assert point_overridden == conditional(network_with_base_a(0.9), "A", {"D": True}, draws=300, rng=6)
+        assert point_overridden.band.q05 > before.band.q95
+        assert beta_overridden.point != before.point
+        assert (beta_overridden.band, beta_overridden.mean_over_draws) == (before.band, before.mean_over_draws)
+
 
 class TestSampling:
     """Drawing the parameters."""
