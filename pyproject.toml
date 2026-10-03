@@ -32,7 +32,7 @@ dev = [
   "jsonschema>=4.26.0",
   "hypothesis>=6.168.3",
 ]
-docs = ["zensical>=0.0.66", "mkdocstrings-python>=2.0.9"]
+docs = ["zensical>=0.0.67", "mkdocstrings-python>=2.0.9"]
 build = ["hatch>=1.18.1"]
 release = ["git-cliff>=2.14.2"]
 
