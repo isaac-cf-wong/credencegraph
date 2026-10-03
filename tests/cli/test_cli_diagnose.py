@@ -32,11 +32,11 @@ class TestDiagnose:
         assert [finding["id"] for finding in output["findings"]] == ["unanchored:calibrated", "overclaim:claim"]
 
     def test_thresholds_are_passed_on(self, cli, graph_file):
-        """Test that a claim threshold above the gap silences the overclaim, and a failure threshold is used."""
+        """Test that a claim threshold above the 1.88 log-odds gap silences the overclaim, and a failure threshold is used."""
         output = cli.json(
-            "diagnose", graph_file, "--target", "claim", "--claim-threshold", "0.5", "--failure-threshold", "0.2"
+            "diagnose", graph_file, "--target", "claim", "--claim-threshold", "2", "--failure-threshold", "0.2"
         )
-        expected = diagnose(example_graph(), "claim", claim_threshold=0.5, failure_threshold=0.2)
+        expected = diagnose(example_graph(), "claim", claim_threshold=2.0, failure_threshold=0.2)
         assert output["findings"] == [finding.to_dict() for finding in expected]
         assert "overclaim:claim" not in [finding["id"] for finding in output["findings"]]
 
@@ -50,10 +50,13 @@ class TestDiagnose:
         """Test that a target that is not an inference variable is refused."""
         assert cli.error("diagnose", graph_file, "--target", "alice")["code"] == "invalid-argument"
 
-    @pytest.mark.parametrize("option", ["--claim-threshold", "--failure-threshold"])
-    def test_threshold_out_of_range(self, cli, graph_file, option):
-        """Test that a threshold outside [0, 1] is refused."""
-        error = cli.error("diagnose", graph_file, "--target", "claim", option, "1.5")
+    @pytest.mark.parametrize(
+        ("option", "value"),
+        [("--claim-threshold", "-0.1"), ("--claim-threshold", "inf"), ("--failure-threshold", "1.5")],
+    )
+    def test_threshold_out_of_range(self, cli, graph_file, option, value):
+        """Test that a negative or infinite log-odds threshold, or a probability outside [0, 1], is refused."""
+        error = cli.error("diagnose", graph_file, "--target", "claim", option, value)
         assert error["code"] == "invalid-argument"
 
     def test_missing_file(self, cli, tmp_path):

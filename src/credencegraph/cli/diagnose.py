@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Annotated
 
 import typer
@@ -60,6 +61,28 @@ def _threshold(value: float, option: str) -> float:
     return value
 
 
+def _log_odds_threshold(value: float, option: str) -> float:
+    """Check that a threshold is a finite gap in log-odds.
+
+    Args:
+        value: The value given on the command line.
+        option: The option it came from, used in the error message.
+
+    Returns:
+        The value.
+
+    Raises:
+        CliError: If the value is negative, infinite or not a number.
+    """
+    if not 0.0 <= value < math.inf:
+        raise CliError(
+            INVALID_ARGUMENT,
+            f"{option} must be a finite number >= 0, got {value!r}",
+            f"pass {option} a gap in natural log-odds, such as 0.69 for a factor of 2 in the odds",
+        )
+    return value
+
+
 def diagnose_command(
     path: GraphPath,
     target: Annotated[
@@ -67,7 +90,10 @@ def diagnose_command(
         typer.Option(help="The node whose weak points are wanted; without it only the graph-wide checks run."),
     ] = None,
     claim_threshold: Annotated[
-        float, typer.Option(help="Report |stated - computed| above this as an overclaim or underclaim.")
+        float,
+        typer.Option(
+            help="Report |logit(stated) - logit(computed)| above this, in natural log-odds, as an overclaim or underclaim."
+        ),
     ] = DEFAULT_CLAIM_THRESHOLD,
     failure_threshold: Annotated[
         float, typer.Option(help="Report a premise whose failure leaves the target below this.")
@@ -77,7 +103,7 @@ def diagnose_command(
     """Report the weak points of a graph file and, with --target, of one of its nodes."""
 
     def action() -> Result:
-        claims_at = _threshold(claim_threshold, "--claim-threshold")
+        claims_at = _log_odds_threshold(claim_threshold, "--claim-threshold")
         failures_at = _threshold(failure_threshold, "--failure-threshold")
         graph = read_graph(path)
         if target is not None:

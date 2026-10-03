@@ -332,7 +332,7 @@ class TestArgumentHints:
             (("add-node", "--id", "x", "--kind", ""), "--kind"),
             (("relate", "claim", "alice", "--type", ""), "--type"),
             (("relate", "claim", "alice", "--type", "cites", "--id", ""), "--id"),
-            (("diagnose", "--target", "claim", "--claim-threshold", "1.5"), "--claim-threshold"),
+            (("diagnose", "--target", "claim", "--claim-threshold", "-0.1"), "--claim-threshold"),
             (("diagnose", "--target", "claim", "--failure-threshold", "-0.1"), "--failure-threshold"),
             (("diagnose", "--claim-threshold", "nan"), "--claim-threshold"),
             (("query", "marginal", "claim", "--draws", "-1"), "--draws"),

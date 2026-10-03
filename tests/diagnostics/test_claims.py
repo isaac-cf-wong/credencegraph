@@ -5,10 +5,12 @@ The graph is the chain A -> B by ``supports``: P(A) = a and P(B) = b + (1 - b) s
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from credencegraph.core import Beta, Graph, Node, Relation, ValidationError
-from credencegraph.diagnostics import OVERCLAIM, UNDERCLAIM, claims
+from credencegraph.diagnostics import DEFAULT_CLAIM_THRESHOLD, OVERCLAIM, UNDERCLAIM, claims
 from credencegraph.semantics import compile_graph
 
 A, B, S = 0.5, 0.2, 0.6
@@ -46,7 +48,7 @@ def test_underclaim():
 
 
 def test_within_threshold_is_silent():
-    """Test that a gap of 0.06 is below the default threshold of 0.1 and a threshold of 0.05 reports it."""
+    """Test that 0.5 against 0.44, 0.24 apart in log-odds, is below the default and a threshold of 0.05 reports it."""
     graph = chain(stated_b=0.5)
     assert claims(graph) == []
     assert [f.id for f in claims(graph, threshold=0.05)] == ["overclaim:B"]
@@ -80,16 +82,61 @@ def test_stated_on_a_carried_node_is_skipped():
     assert claims(graph) == []
 
 
-def test_bad_threshold():
-    """Test that a threshold outside [0, 1] is rejected."""
+@pytest.mark.parametrize("threshold", [-0.1, math.inf, math.nan, True, "0.1"])
+def test_bad_threshold(threshold):
+    """Test that a threshold that is not a finite number >= 0 is rejected."""
     with pytest.raises(ValidationError, match="threshold"):
-        claims(chain(), threshold=1.5)
+        claims(chain(), threshold=threshold)
+
+
+def test_threshold_above_one_is_accepted():
+    """Test that a log-odds threshold is not capped at 1: ln(20) silences 0.9 against 0.44, ln(10) does not."""
+    assert claims(chain(stated_b=0.9), threshold=math.log(20)) == []
+    assert [f.id for f in claims(chain(stated_b=0.9), threshold=math.log(10))] == ["overclaim:B"]
+
+
+def root(base, stated):
+    """A single root ``x``, whose computed credence is its base."""
+    graph = Graph()
+    graph.add_node(Node("x", base=base, stated=stated))
+    return graph
 
 
 def test_gap_equal_to_threshold_is_not_reported():
-    """Test that a gap of 0.1 on paper, 0.2 - (1 - 0.9) = 0.10000000000000003 in floating point, is not reported."""
-    graph = Graph()
-    graph.add_node(Node("x", base=0.1, stated=0.2))
-    assert 0.2 - (1 - 0.9) > 0.1
-    assert claims(graph, threshold=0.1) == []
-    assert [f.id for f in claims(graph, threshold=0.0999)] == ["overclaim:x"]
+    """Test that 3/11 against 0.2, odds 0.375 against 0.25, a gap of exactly ln(1.5) on paper, is not reported."""
+    graph = root(0.2, 3 / 11)
+    assert claims(graph) == []
+    assert [f.id for f in claims(graph, threshold=DEFAULT_CLAIM_THRESHOLD - 1e-6)] == ["overclaim:x"]
+
+
+@pytest.mark.parametrize(
+    ("base", "stated", "expected"),
+    [(0.001, 0.07, "overclaim:x"), (0.07, 0.001, "underclaim:x"), (0.999, 0.93, "underclaim:x")],
+)
+def test_order_of_magnitude_on_a_small_probability_is_reported(base, stated, expected):
+    """Test that a 70x error in a small probability, only 0.069 apart, is reported, and its mirror near 1."""
+    (finding,) = claims(root(base, stated))
+    assert finding.id == expected
+    assert finding.value == pytest.approx(stated - base, rel=1e-12, abs=0.0)
+
+
+def test_every_gap_above_a_tenth_in_probability_is_reported():
+    """Test that the default reports every pair more than 0.1 apart in probability, across [0, 1]."""
+    grid = [i / 200 for i in range(201)]
+    for base in grid:
+        for stated in grid:
+            if abs(stated - base) > 0.1 + 1e-9:
+                assert claims(root(base, stated)) != [], (base, stated)
+
+
+@pytest.mark.parametrize(("base", "stated"), [(0.99, 1.0), (0.0, 0.01), (1.0, 0.99)])
+def test_certainty_on_one_side_is_reported_with_a_finite_value(base, stated):
+    """Test that a gap to exactly 0 or 1 is infinite in log-odds, reported, and its value stays finite."""
+    (finding,) = claims(root(base, stated))
+    assert finding.value == pytest.approx(stated - base, rel=1e-12, abs=0.0)
+
+
+@pytest.mark.parametrize("p", [0.0, 0.3, 1.0])
+def test_equal_stated_and_computed_is_silent_at_any_threshold(p):
+    """Test that equal values, certain ones included, are never reported, even at threshold 0."""
+    assert claims(root(p, p), threshold=0.0) == []

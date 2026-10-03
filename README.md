@@ -83,7 +83,8 @@ above it reports, among others, that `calibrated` is an assumption with no
 source, ranks `r2` as the crux — the only uncertain input the claim depends on —
 and ranks `signal` as the premise most worth resolving. A node's `stated`
 credence, the confidence its source asserts, is compared with the credence its
-premises deliver, and a gap above 0.1 is reported as an overclaim or underclaim.
+premises deliver, and odds that differ by more than a factor of 1.5 are reported
+as an overclaim or underclaim.
 
 ## Command line
 
