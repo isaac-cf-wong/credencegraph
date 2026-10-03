@@ -40,7 +40,7 @@ def _lines(findings: list[Finding]) -> list[str]:
 
 
 def _threshold(value: float, option: str) -> float:
-    """Check that a threshold is a probability.
+    """Check that a threshold is a number in [0, 1].
 
     Args:
         value: The value given on the command line.
@@ -56,7 +56,7 @@ def _threshold(value: float, option: str) -> float:
         raise CliError(
             INVALID_ARGUMENT,
             f"{option} must lie in [0, 1], got {value!r}",
-            f"pass {option} a probability between 0 and 1",
+            f"pass {option} a number in [0, 1]",
         )
     return value
 
@@ -96,7 +96,10 @@ def diagnose_command(
         ),
     ] = DEFAULT_CLAIM_THRESHOLD,
     failure_threshold: Annotated[
-        float, typer.Option(help="Report a premise whose failure leaves the target below this.")
+        float,
+        typer.Option(
+            help="Report a premise whose failure leaves the target below this fraction of its own probability."
+        ),
     ] = DEFAULT_FAILURE_THRESHOLD,
     as_json: JsonOption = False,
 ) -> None:

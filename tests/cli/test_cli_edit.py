@@ -37,8 +37,29 @@ class TestInit:
     def test_missing_directory(self, cli, tmp_path):
         """Test that a path in a directory that does not exist is an I/O error."""
         path = tmp_path / "absent" / "g.json"
-        assert cli.error("init", path)["code"] == "io-error"
+        error = cli.error("init", path)
+        assert error["code"] == "io-error"
+        assert error["hint"] == (
+            f"the directory {str(path.parent)!r} does not exist; create it and run the command again"
+        )
         assert not path.exists()
+
+    def test_missing_directory_text_mode(self, cli, tmp_path):
+        """Test that without ``--json`` the hint naming the missing directory goes to stderr."""
+        path = tmp_path / "absent" / "g.json"
+        result = cli.run("init", path)
+        assert result.exit_code == 1
+        assert result.stderr.splitlines()[-1] == (
+            f"hint: the directory {str(path.parent)!r} does not exist; create it and run the command again"
+        )
+
+    def test_other_write_errors_carry_no_directory_hint(self, cli, tmp_path, mocker):
+        """Test that a write error other than a missing directory keeps the plain message and no hint."""
+        mocker.patch("credencegraph.cli.common.tempfile.mkstemp", side_effect=PermissionError("denied"))
+        error = cli.error("init", tmp_path / "g.json")
+        assert error["code"] == "io-error"
+        assert "denied" in error["message"]
+        assert error["hint"] is None
 
 
 class TestAddNode:

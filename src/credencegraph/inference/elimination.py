@@ -147,8 +147,8 @@ class VariableElimination(Engine):
                 msg = (
                     f"variable elimination would build an intermediate factor over {len(union)} variables "
                     f"({size} entries), above the limit of {self.max_factor_size} entries (max_factor_size). "
-                    "Raise the limit or use a sampling engine; exact inference does not fall back to an "
-                    "approximation on its own"
+                    "Raise max_factor_size to run the query exactly; exact inference does not fall back to "
+                    "an approximation on its own"
                 )
                 raise ProblemTooLargeError(msg, size, self.max_factor_size)
             scopes = [scope for scope in scopes if variable not in scope]

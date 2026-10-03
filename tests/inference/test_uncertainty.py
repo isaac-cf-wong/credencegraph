@@ -272,6 +272,20 @@ class TestBand:
         np.testing.assert_allclose(answer.mean_over_draws, base_c.mean(), rtol=1e-12, atol=0.0)
         np.testing.assert_allclose(answer.band.q50, np.median(base_c), rtol=1e-12, atol=0.0)
 
+    def test_beta_override_moves_the_point_but_not_the_band(self, four_nodes):
+        """Test that overriding Beta parameters changes the point answer while the band is drawn from their credences."""
+        overridden = four_nodes.with_parameters({KEYS["a"]: 0.9, KEYS["r"]: 0.1})
+        before = conditional(four_nodes, "A", {"D": True}, draws=300, rng=6)
+        after = conditional(overridden, "A", {"D": True}, draws=300, rng=6)
+        assert after.point != before.point
+        assert (after.band, after.mean_over_draws, after.draws) == (before.band, before.mean_over_draws, 300)
+
+    def test_overriding_every_beta_parameter_keeps_the_band(self, four_nodes):
+        """Test that a network whose Beta parameters have all been set still gets the band of its credences."""
+        overridden = four_nodes.with_parameters(dict.fromkeys(KEYS.values(), 0.5))
+        assert has_spread(overridden)
+        assert marginal(overridden, "D", draws=200, rng=2).band == marginal(four_nodes, "D", draws=200, rng=2).band
+
     def test_to_dict(self):
         """Test the JSON form of an answer with a band."""
         answer = Answer(0.4, Band(0.1, 0.35, 0.8), 0.42, 100)
@@ -297,6 +311,32 @@ class TestBand:
         with pytest.raises(ValidationError, match="draws must be a non-negative integer"):
             marginal(four_nodes, "D", draws=draws)
 
+    def test_point_override_moves_the_band(self):
+        """Test that overriding a Point parameter moves the band, while overriding a Beta one does not.
+
+        The overridden Point value is kept in every draw, so the band is the one of a graph whose
+        credence is that value; a Beta parameter is still drawn from its credence.
+        """
+
+        def network_with_base_a(base_a):
+            graph = Graph()
+            graph.add_node(Node("A", base=base_a))
+            for name in "BCD":
+                graph.add_node(Node(name, base=CREDENCES[name.lower()]))
+            graph.add_relation(Relation("r", "requires", "A", "C", strength=CREDENCES["r"]))
+            graph.add_relation(Relation("s", "supports", "B", "D", strength=CREDENCES["s"]))
+            graph.add_relation(Relation("f", "refutes", "C", "D", strength=CREDENCES["f"]))
+            return compile_graph(graph)
+
+        network = network_with_base_a(0.25)
+        before = conditional(network, "A", {"D": True}, draws=300, rng=6)
+        point_overridden = conditional(network.with_parameters({KEYS["a"]: 0.9}), "A", {"D": True}, draws=300, rng=6)
+        beta_overridden = conditional(network.with_parameters({KEYS["r"]: 0.1}), "A", {"D": True}, draws=300, rng=6)
+        assert point_overridden == conditional(network_with_base_a(0.9), "A", {"D": True}, draws=300, rng=6)
+        assert point_overridden.band.q05 > before.band.q95
+        assert beta_overridden.point != before.point
+        assert (beta_overridden.band, beta_overridden.mean_over_draws) == (before.band, before.mean_over_draws)
+
 
 class TestSampling:
     """Drawing the parameters."""
@@ -310,6 +350,15 @@ class TestSampling:
         samples = sample_parameters(compile_graph(graph), 50, rng=0)
         assert list(samples) == [ParameterKey("base", "x")]
         assert samples[ParameterKey("base", "x")].shape == (50,)
+
+    def test_overridden_parameters_are_drawn_from_their_credences(self, four_nodes):
+        """Test that sampling ignores the values set by with_parameters."""
+        overridden = four_nodes.with_parameters({KEYS["a"]: 0.9})
+        expected = sample_parameters(four_nodes, 50, rng=1)
+        drawn = sample_parameters(overridden, 50, rng=1)
+        assert list(drawn) == list(expected)
+        for key, values in expected.items():
+            np.testing.assert_array_equal(drawn[key], values)
 
     def test_draws_stay_inside_the_open_interval(self):
         """Test that a Beta that rounds to exactly 0 or 1 in floating point is kept strictly inside (0, 1).

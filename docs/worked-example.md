@@ -163,10 +163,12 @@ and the two refuters, which leave 1 − 0.99 · 0.7 = 0.307 and 1 − 0.9 · 0.8
   cruxes of 0.032 and 0.028, followed by `timing` at 0.0068. The claim depends
   most on how far the low-energy SN1987A bound and the pair-emission argument
   carry over to 17 GeV neutrinos, and that is where the reader was least sure.
-- **Every premise is a single point of failure** at the default threshold of
-  0.1, because the claim is already below it. Pass a smaller
-  `--failure-threshold` to rank them: if the timing chain is wrong, the claim
-  falls to 0.004.
+- **Three premises are single points of failure**: the measurement, the baseline
+  and the timing chain. The failure threshold is a fraction of the claim's own
+  probability, so the default of 0.1 asks which premises would take it down by
+  an order of magnitude. If the timing chain is wrong, the claim falls to 0.004,
+  0.056 of what it was. A wrong extraction leaves 0.103 of it, just above the
+  line, and a failed bunched rerun 0.93.
 - **The bunched-beam rerun is worth almost nothing for the claim**: 1.5 × 10⁻⁵
   bits, against 0.009 bits for the timing chain. It checks the extraction, which
   was not in doubt, and cannot check the timing, which was.

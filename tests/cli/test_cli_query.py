@@ -136,6 +136,7 @@ class TestErrors:
             (("joint", "claim", "claim=false"), "both true and false"),
             (("marginal", "claim", "--given", "signal=true", "--given", "signal=false"), "both true and false"),
             (("marginal", "claim", "--draws", "-1"), "--draws must be 0 or more"),
+            (("marginal", "claim", "--max-factor-size", "0"), "--max-factor-size must be 1 or more"),
         ],
     )
     def test_invalid_query(self, cli, graph_file, args, fragment):
@@ -200,3 +201,51 @@ class TestErrors:
     def test_shape_is_checked_before_the_file(self, cli, tmp_path):
         """Test that a malformed query is reported as such even when the file is missing too."""
         assert cli.error("query", tmp_path / "g.json", "margin", "a")["code"] == "invalid-argument"
+
+
+def wide_graph(tmp_path, *relations):
+    """Write a graph whose node ``child`` rests on four parents, plus the given relations.
+
+    Eliminating towards ``child`` builds a factor of 16 table entries; the query of ``child`` with
+    no evidence fits a limit of 16, and the exclusive relation between ``p0`` and ``p1`` raises it to 32.
+    """
+    graph = Graph()
+    for i in range(4):
+        graph.add_node(Node(f"p{i}", base=0.5))
+    graph.add_node(Node("child", base=0.1))
+    for i in range(4):
+        graph.add_relation(Relation(f"r{i}", "supports", f"p{i}", "child", strength=0.5))
+    for relation in relations:
+        graph.add_relation(relation)
+    path = tmp_path / "g.json"
+    dump(graph, path)
+    return path
+
+
+class TestMaxFactorSize:
+    """The limit on exact inference is set from the command line, and the error names how."""
+
+    def test_limit_is_raised_from_the_command_line(self, cli, tmp_path):
+        """Test that a query over the limit fails naming --max-factor-size, and succeeds once it is raised."""
+        path = wide_graph(tmp_path)
+        error = cli.error("query", path, "marginal", "child", "--draws", "0", "--max-factor-size", "8")
+        assert error["code"] == "problem-too-large"
+        assert error["details"] == {"required": 16, "limit": 8}
+        assert "raise the limit with --max-factor-size, to at least 16" in error["hint"]
+        output = cli.json("query", path, "marginal", "child", "--draws", "0", "--max-factor-size", "16")
+        assert_close(output["point"], 1 - 0.9 * (1 - 0.5 * 0.5) ** 4)
+
+    def test_remedy_search_keeps_the_limit(self, cli, tmp_path):
+        """Test that the search for a remedy to impossible evidence answers with the limit passed.
+
+        The evidence fixes ``p0`` and ``p1``, so the query fits a limit of 16; the search re-runs it
+        without the evidence, which needs 32.
+        """
+        path = wide_graph(tmp_path, Relation("x", "exclusive", "p0", "p1"))
+        args = ("query", path, "conditional", "child", "--given", "p0=true", "--given", "p1=true", "--draws", "0")
+        error = cli.error(*args, "--max-factor-size", "16")
+        assert error["code"] == "problem-too-large"
+        assert error["details"] == {"required": 32, "limit": 16}
+        error = cli.error(*args, "--max-factor-size", "32")
+        assert error["code"] == "zero-probability"
+        assert error["details"]["exclusive_relation"] == "x"

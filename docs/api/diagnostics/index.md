@@ -17,7 +17,7 @@ Every diagnostic returns a list of `Finding` records. A finding has an `id`
 | `claims`                   | \|logit(stated) − logit(computed)\| above a threshold (default 2 ln(11/9) ≈ 0.40) |
 | `sensitivity`              | ∂P(T)/∂θ for every parameter θ                                                    |
 | `crux`                     | \|∂P(T)/∂θ\| · sd(θ): T depends on θ _and_ θ is uncertain                         |
-| `single_points_of_failure` | Y with P(T \| do(Y = false)) below a threshold (default 0.1)                      |
+| `single_points_of_failure` | Y with P(T \| do(Y = false)) below a fraction of P(T) (0.1)                       |
 | `value_of_information`     | The mutual information I(T; Y) in bits                                            |
 
 `diagnose(graph, target)` runs them all. If a parameter is missing the graph
@@ -34,8 +34,11 @@ quotient rule is used instead, again from the values at θ = 0 and θ = 1.
 known exactly, or a wide credence the target ignores, both score zero.
 
 **Single points of failure** use intervention, not conditioning: "suppose this
-premise is simply wrong". A variable is reported only when the target actually
-drops, so an already improbable target does not flag every variable.
+premise is simply wrong". The threshold is a fraction of the target's own
+probability, not a probability: by default a variable is reported when its
+failure leaves P(T) below a tenth of what it was. An already improbable target
+therefore still has its premises ranked, rather than every premise whose failure
+lowers it reported; a threshold of 1 reports all of those.
 
 Parameters are treated as independent, so the most common source of
 overconfidence in a hand-built argument is a missing common cause: two premises
