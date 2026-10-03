@@ -37,8 +37,10 @@ from credencegraph.inference.engine import Engine, Query
 from credencegraph.inference.errors import ZeroProbabilityError
 from credencegraph.semantics.network import PROPOSITION, Network, ParameterKey
 
-# A convention of this package, not something the model determines: a target left below 0.1 once a
-# premise fails is treated as sunk. Pass a threshold suited to the question.
+# A convention of this package, not something the model determines: a premise whose failure leaves the
+# target below a tenth of its own probability, an order of magnitude down, sinks it. The threshold is a
+# fraction of P(target) rather than a probability, so that a target that is already improbable still has
+# its premises ranked instead of every one of them reported. Pass a threshold suited to the question.
 DEFAULT_FAILURE_THRESHOLD = 0.1
 
 
@@ -261,21 +263,25 @@ def single_points_of_failure(
     """Find the variables Y whose failure alone sinks the target: ``P(target | do(Y = false))``.
 
     The intervention cuts the relations into Y and fixes it false, as in "suppose this premise is
-    simply wrong". A variable is reported when that probability is below ``threshold`` and below
-    ``P(target)`` itself, so that a target that is already improbable does not flag every variable.
+    simply wrong". A variable is reported when that probability is below ``threshold * P(target)``:
+    the threshold is a fraction of the target's own probability, not a probability, so the same
+    default separates the premises that sink the target from those that merely dent it whether the
+    target starts at 0.9 or at 0.01. A threshold of 1 reports every variable whose failure lowers the
+    target at all; 0 reports none.
 
     Args:
         network: The network.
         target: The id of the target node.
-        threshold: The probability below which the target counts as failed; a probability within
-            1e-12 of it, or of ``P(target)``, counts as equal to it, so rounding cannot tip a finding.
-            The default, 0.1, is a convention chosen for this package rather than a value the model
-            fixes.
+        threshold: The fraction of ``P(target)`` below which the target counts as failed; a
+            probability within 1e-12 of ``threshold * P(target)`` counts as equal to it, so rounding
+            cannot tip a finding. The default, 0.1, an order of magnitude, is a convention chosen for
+            this package rather than a value the model fixes.
         engine: The exact engine; variable elimination by default.
 
     Returns:
         One finding per single point of failure, lowest remaining probability first; its value is
-        ``P(target | do(Y = false))``.
+        ``P(target | do(Y = false))``, and its details give ``P(target)`` as ``baseline`` and the
+        fraction as ``threshold``.
 
     Raises:
         ValidationError: If ``threshold`` is not in [0, 1], or ``target`` is not an inference variable.
@@ -286,10 +292,11 @@ def single_points_of_failure(
     engine = engine or VariableElimination()
     query = Query({target: True})
     baseline = engine.query(network, query)
+    cutoff = limit * baseline
     findings = []
     for name, members in _others(network, target):
         value = engine.query(network.intervene({name: False}), query)
-        if value >= limit - ROUNDING or value >= baseline - ROUNDING:
+        if value >= cutoff - ROUNDING:
             continue
         findings.append(
             Finding(
