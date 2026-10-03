@@ -173,6 +173,22 @@ class TestSinglePointOfFailure:
         assert [f.id for f in findings] == ["single-point-of-failure:X", "single-point-of-failure:W"]
         close(findings[1].value, 0.05)
 
+    def test_failure_of_an_improbable_target_is_reported(self, engine):
+        """Test that a premise taking P(T) = 5e-16 to 0 is reported: the rounding slack scales with P(T).
+
+        X (base 0.5) ``requires`` T with strength 1 and T's base is 1e-15, so P(T) = 5e-16 and do(X = 0)
+        leaves exactly 0. An absolute slack of 1e-12 would put the cutoff below zero and hide it.
+        """
+        graph = Graph()
+        graph.add_node(Node("X", base=0.5))
+        graph.add_node(Node("T", base=1e-15))
+        graph.add_relation(Relation("XT", "requires", "X", "T", strength=1.0))
+        (finding,) = single_points_of_failure(compile_graph(graph), "T", engine=engine)
+        assert finding.id == "single-point-of-failure:X"
+        assert finding.value == 0.0
+        # The engine forms T's base as 1 - (1 - 1e-15), which cancels to about 4.996e-16.
+        np.testing.assert_allclose(finding.details["baseline"], 5e-16, rtol=1e-3, atol=0.0)
+
     def test_probability_equal_to_threshold_is_not_reported(self, engine):
         """Test that falling to half of P(T) on paper, 0.19999999999999996 against 0.19999999999999998, is not below it.
 

@@ -273,9 +273,10 @@ def single_points_of_failure(
         network: The network.
         target: The id of the target node.
         threshold: The fraction of ``P(target)`` below which the target counts as failed; a
-            probability within 1e-12 of ``threshold * P(target)`` counts as equal to it, so rounding
-            cannot tip a finding. The default, 0.1, an order of magnitude, is a convention chosen for
-            this package rather than a value the model fixes.
+            probability within a relative 1e-12 of ``threshold * P(target)`` counts as equal to it,
+            so rounding cannot tip a finding however small ``P(target)`` is. The default, 0.1, an
+            order of magnitude, is a convention chosen for this package rather than a value the model
+            fixes.
         engine: The exact engine; variable elimination by default.
 
     Returns:
@@ -292,11 +293,13 @@ def single_points_of_failure(
     engine = engine or VariableElimination()
     query = Query({target: True})
     baseline = engine.query(network, query)
-    cutoff = limit * baseline
+    # The cutoff is relative, so its rounding slack is too: an absolute one would exceed the cutoff
+    # itself for a target below about 1e-12 and hide even a failure that takes the target to zero.
+    cutoff = limit * baseline * (1.0 - ROUNDING)
     findings = []
     for name, members in _others(network, target):
         value = engine.query(network.intervene({name: False}), query)
-        if value >= cutoff - ROUNDING:
+        if value >= cutoff:
             continue
         findings.append(
             Finding(
