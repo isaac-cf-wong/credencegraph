@@ -169,7 +169,8 @@ def test_problem_too_large_hint_names_a_next_step(cli, tmp_path):
     error = json.loads(provoke(cli, tmp_path, "problem-too-large").stdout)["error"]
     assert error["details"]["required"] > error["details"]["limit"]
     assert error["hint"].startswith("reduce how many relations meet at one node")
-    assert "raise max_factor_size on VariableElimination" in error["hint"]
+    assert "--max-factor-size" in error["hint"]
+    assert "raise max_factor_size on VariableElimination" in common.translate(ProblemTooLargeError("m", 2, 1)).hint
 
 
 def test_every_command_is_covered():
