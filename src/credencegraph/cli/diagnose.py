@@ -70,7 +70,10 @@ def diagnose_command(
         float, typer.Option(help="Report |stated - computed| above this as an overclaim or underclaim.")
     ] = DEFAULT_CLAIM_THRESHOLD,
     failure_threshold: Annotated[
-        float, typer.Option(help="Report a premise whose failure leaves the target below this.")
+        float,
+        typer.Option(
+            help="Report a premise whose failure leaves the target below this fraction of its own probability."
+        ),
     ] = DEFAULT_FAILURE_THRESHOLD,
     as_json: JsonOption = False,
 ) -> None:

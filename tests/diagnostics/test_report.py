@@ -30,8 +30,11 @@ def test_without_target():
 
 
 def test_with_target_groups_every_diagnostic():
-    """Test the order of the groups, and that they match the single diagnostics' counts."""
-    findings = diagnose(argument(), "T")
+    """Test the order of the groups, and that they match the single diagnostics' counts.
+
+    Failing P leaves 0.294 of P(T), so a failure threshold of 0.5 reports it.
+    """
+    findings = diagnose(argument(), "T", failure_threshold=0.5)
     groups = [f.diagnostic for f in findings]
     assert groups == [
         "unanchored",
@@ -55,9 +58,12 @@ def test_missing_parameter_stops_the_report():
 
 def test_thresholds_are_passed_on():
     """Test that the claim and failure thresholds reach their diagnostics."""
-    ids = [f.id for f in diagnose(argument(stated=0.4), "T", claim_threshold=0.05, failure_threshold=0.0)]
+    ids = [f.id for f in diagnose(argument(stated=0.4), "T", claim_threshold=0.05, failure_threshold=0.5)]
     assert "overclaim:T" in ids
-    assert not any(i.startswith("single-point-of-failure") for i in ids)
+    assert "single-point-of-failure:P" in ids
+    defaults = [f.id for f in diagnose(argument(stated=0.4), "T")]
+    assert "overclaim:T" not in defaults
+    assert "single-point-of-failure:P" not in defaults
 
 
 def test_unknown_target():
@@ -121,7 +127,7 @@ def test_messages_stay_on_one_line_whatever_the_ids():
     graph.add_node(Node(target, base=0.3, stated=0.9))
     graph.add_node(Node(low, base=0.8, stated=0.1, sources=[ANCHOR]))
     graph.add_relation(Relation(f"needs{BREAKS}r", "requires", premise, target, strength=Beta(8, 2)))
-    findings = diagnose(graph, target)
+    findings = diagnose(graph, target, failure_threshold=0.5)
 
     broken = Graph()
     broken.add_node(Node(premise, base=0.5))
