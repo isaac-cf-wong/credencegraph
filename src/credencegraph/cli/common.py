@@ -140,7 +140,8 @@ def translate(error: CredenceGraphError, command: str | None = None) -> CliError
         return CliError(
             PROBLEM_TOO_LARGE,
             str(error),
-            "the graph is too large for exact inference",
+            "reduce how many relations meet at one node, for example by merging related premises into one; "
+            "from Python, raise max_factor_size on VariableElimination instead",
             {"required": error.required, "limit": error.limit},
         )
     usage = f"'credencegraph {command} --help'" if command else "'credencegraph --help'"
@@ -326,6 +327,12 @@ def write_graph(graph: Graph, path: Path) -> None:
     directory = path.parent
     try:
         handle, temporary = tempfile.mkstemp(dir=directory, prefix=f".{path.name}.", suffix=".tmp")
+    except FileNotFoundError as error:
+        raise CliError(
+            IO_ERROR,
+            f"cannot write {str(path)!r}: {error}",
+            f"the directory {str(directory)!r} does not exist; create it and run the command again",
+        ) from None
     except OSError as error:
         raise CliError(IO_ERROR, f"cannot write {str(path)!r}: {error}") from None
     try:

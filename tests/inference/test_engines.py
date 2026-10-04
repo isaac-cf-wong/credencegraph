@@ -93,7 +93,9 @@ class TestLimits:
             engine.query(network, Query({"x": True}))
         assert info.value.required == 8
         assert info.value.limit == 7
-        assert "sampling engine" in str(info.value)
+        assert "Raise max_factor_size" in str(info.value)
+        # No sampling engine exists, so the message must not offer one.
+        assert "sampling" not in str(info.value)
         assert "does not fall back" in str(info.value)
 
     def test_factor_size_at_limit(self):

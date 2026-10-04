@@ -12,6 +12,7 @@ import typer
 from credencegraph.cli.common import (
     IMPOSSIBLE_GRAPH_HINT,
     INVALID_ARGUMENT,
+    PROBLEM_TOO_LARGE,
     ZERO_PROBABILITY,
     CliError,
     GraphPath,
@@ -26,9 +27,9 @@ from credencegraph.cli.common import (
 from credencegraph.core.credence import Point
 from credencegraph.core.graph import Graph
 from credencegraph.core.relation import EXCLUSIVE
-from credencegraph.inference.elimination import VariableElimination
+from credencegraph.inference.elimination import DEFAULT_MAX_FACTOR_SIZE, VariableElimination
 from credencegraph.inference.engine import Query
-from credencegraph.inference.errors import ZeroProbabilityError
+from credencegraph.inference.errors import ProblemTooLargeError, ZeroProbabilityError
 from credencegraph.inference.queries import Answer, conditional, intervene, joint, marginal
 from credencegraph.inference.uncertainty import DEFAULT_DRAWS
 from credencegraph.semantics.compiler import compile_graph
@@ -116,11 +117,16 @@ def _item(node_id: str, value: bool) -> str:
 
 
 def _fails(
-    network: Network, target: dict[str, bool], evidence: dict[str, bool], interventions: dict[str, bool]
+    engine: VariableElimination,
+    network: Network,
+    target: dict[str, bool],
+    evidence: dict[str, bool],
+    interventions: dict[str, bool],
 ) -> bool:
     """Tell whether a query's evidence has probability zero.
 
     Args:
+        engine: The engine the command answers with.
         network: The compiled network.
         target: The target.
         evidence: The ``--given`` values.
@@ -130,7 +136,7 @@ def _fails(
         ``True`` if the query raises ``ZeroProbabilityError``.
     """
     try:
-        VariableElimination().query(network, Query(target, evidence, interventions))
+        engine.query(network, Query(target, evidence, interventions))
     except ZeroProbabilityError:
         return True
     return False
@@ -242,15 +248,21 @@ def _split(items: list[tuple[str, str, bool]]) -> tuple[dict[str, bool], dict[st
 
 
 def _failing_values(
-    graph: Graph, network: Network, target: dict[str, bool], items: list[tuple[str, str, bool]]
+    engine: VariableElimination,
+    graph: Graph,
+    network: Network,
+    target: dict[str, bool],
+    items: list[tuple[str, str, bool]],
 ) -> tuple[str, str]:
     """Name the flags whose values fail, and what they fail under, by re-running the query.
 
     A flag is named when the query fails with its values alone; when no flag's values fail alone,
     all of them fail together. Exclusive relations are named as part of the context only when the
-    named values succeed without them.
+    named values, under every ``--set`` value passed, succeed without them: ``--given`` values are
+    conditioned on under the intervention, so it can be what makes an exclusive relation bind.
 
     Args:
+        engine: The engine the command answers with.
         graph: The graph.
         network: The compiled network.
         target: The target.
@@ -261,7 +273,7 @@ def _failing_values(
     """
     flags = [flag for flag in ("--given", "--set") if any(item[0] == flag for item in items)]
     groups = {flag: [item for item in items if item[0] == flag] for flag in flags}
-    named = [(flag, group) for flag, group in groups.items() if _fails(network, target, *_split(group))]
+    named = [(flag, group) for flag, group in groups.items() if _fails(engine, network, target, *_split(group))]
     if len(named) > 1:
         message = "the --given values and the --set values each have probability zero, so the query has no answer"
     elif named:
@@ -271,15 +283,18 @@ def _failing_values(
         message = f"the {named[0][0]} values have probability zero together, so the query has no answer"
     exclusive = frozenset(r.id for r in graph.relations.values() if r.type == EXCLUSIVE)
     loose = compile_graph(_rebuilt(graph, removed=exclusive)) if exclusive else network
+    interventions = _split(items)[1]
     causes = []
     for flag, group in named:
-        uses_exclusive = exclusive and not _fails(loose, target, *_split(group))
+        uses_exclusive = exclusive and not _fails(engine, loose, target, _split(group)[0], interventions)
         context = "the graph's credences and exclusive relations" if uses_exclusive else "the graph's credences"
         causes.append(f"the {flag} values have probability zero under {context}")
     return message, "; ".join(causes)
 
 
-def _impossible(kind: str, graph: Graph, network: Network, query: Query, error: ZeroProbabilityError) -> CliError:
+def _impossible(  # noqa: PLR0913, PLR0917 - the command's whole context
+    engine: VariableElimination, kind: str, graph: Graph, network: Network, query: Query, error: ZeroProbabilityError
+) -> CliError:
     """Explain a query whose evidence has probability zero by its cause, with remedies that are checked.
 
     With nothing passed, or when the query fails without its ``--given`` and ``--set`` values, the
@@ -294,6 +309,7 @@ def _impossible(kind: str, graph: Graph, network: Network, query: Query, error: 
     as none existing.
 
     Args:
+        engine: The engine the command answers with.
         kind: The kind of query.
         graph: The graph.
         network: The compiled network.
@@ -314,7 +330,7 @@ def _impossible(kind: str, graph: Graph, network: Network, query: Query, error: 
     items = [("--given", n, v) for n, v in query.evidence.items()] + [
         ("--set", n, v) for n, v in query.interventions.items()
     ]
-    if not items or _fails(network, target, {}, {}):
+    if not items or _fails(engine, network, target, {}, {}):
         return CliError(ZERO_PROBABILITY, str(error), IMPOSSIBLE_GRAPH_HINT)
     labels = [f"{flag} {_item(node_id, value)}" for flag, node_id, value in items]
 
@@ -324,11 +340,11 @@ def _impossible(kind: str, graph: Graph, network: Network, query: Query, error: 
             _check_shape(kind, target, *kept)
         except CliError:
             return False
-        return not _fails(network, target, *kept)
+        return not _fails(engine, network, target, *kept)
 
     def succeeds_on(changed: Graph) -> bool:
         try:
-            return not _fails(compile_graph(changed), target, *_split(items))
+            return not _fails(engine, compile_graph(changed), target, *_split(items))
         except CompileError:
             return False
 
@@ -353,7 +369,7 @@ def _impossible(kind: str, graph: Graph, network: Network, query: Query, error: 
     remedies = []
     if drops:
         remedies.append(f"drop {_either(drops)}" if any_drop else f"drop all of {', '.join(drops)}")
-    message, cause = _failing_values(graph, network, target, items)
+    message, cause = _failing_values(engine, graph, network, target, items)
     for relation, first, second in _broken_exclusive(graph, network, items):
         if succeeds_on(_rebuilt(graph, removed=frozenset([relation]))):
             details["exclusive_relation"] = relation
@@ -417,6 +433,9 @@ def query_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to each 
         int, typer.Option(help="Parameter draws behind the uncertainty band; 0 skips the band.")
     ] = DEFAULT_DRAWS,
     seed: Annotated[int | None, typer.Option(help="Seed for the parameter draws.", show_default=False)] = None,
+    max_factor_size: Annotated[
+        int, typer.Option(help="The largest intermediate factor exact inference may build, in table entries.")
+    ] = DEFAULT_MAX_FACTOR_SIZE,
     as_json: JsonOption = False,
 ) -> None:
     """Compute a probability from a graph file.
@@ -433,6 +452,12 @@ def query_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to each 
             raise CliError(
                 INVALID_ARGUMENT, f"--draws must be 0 or more, got {draws}", "pass --draws 0 to skip the band"
             )
+        if max_factor_size < 1:
+            raise CliError(
+                INVALID_ARGUMENT,
+                f"--max-factor-size must be 1 or more, got {max_factor_size}",
+                f"the default is {DEFAULT_MAX_FACTOR_SIZE} table entries",
+            )
         graph = read_graph(path)
         require_variables(graph, target, "target")
         require_variables(graph, evidence, "--given")
@@ -440,7 +465,8 @@ def query_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to each 
         network = compile_checked(graph)
         _check_consistent(network, evidence, interventions)
         query = Query(target, evidence, interventions)
-        options = {"draws": draws, "rng": seed}
+        engine = VariableElimination(max_factor_size)
+        options = {"engine": engine, "draws": draws, "rng": seed}
         answer: Answer
         try:
             if kind == "intervene":
@@ -453,7 +479,7 @@ def query_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to each 
             else:
                 answer = joint(network, target, **options)
         except ZeroProbabilityError as error:
-            raise _impossible(kind, graph, network, query, error) from None
+            raise _impossible(engine, kind, graph, network, query, error) from None
         payload = {
             "path": str(path),
             "kind": kind,
@@ -465,7 +491,19 @@ def query_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to each 
         }
         return Result(payload, _describe(query, answer))
 
-    respond("query", as_json, action)
+    def limited() -> Result:
+        try:
+            return action()
+        except ProblemTooLargeError as error:
+            raise CliError(
+                PROBLEM_TOO_LARGE,
+                str(error),
+                "reduce how many relations meet at one node, for example by merging related premises into one; "
+                f"or raise the limit with --max-factor-size, to at least {error.required}",
+                {"required": error.required, "limit": error.limit},
+            ) from None
+
+    respond("query", as_json, limited)
 
 
 def _describe(query: Query, answer: Answer) -> list[str]:

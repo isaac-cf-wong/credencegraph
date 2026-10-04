@@ -180,9 +180,16 @@ class TestOpera:
             "crux:base:timing",
         ]
         assert [round(by_id[crux]["value"], 4) for crux in cruxes[:3]] == [0.0319, 0.0277, 0.0068]
-        failures = {finding["nodes"][0] for finding in findings if finding["diagnostic"] == "single-point-of-failure"}
-        assert failures == {"early", "baseline", "timing", "extraction", "bunched"}
+        failures = [finding["nodes"][0] for finding in findings if finding["diagnostic"] == "single-point-of-failure"]
+        assert failures == ["early", "baseline", "timing"]
+        claim = point(cli, path, "marginal", "faster")
+        fractions = {
+            premise: point(cli, path, "intervene", "faster", "--set", f"{premise}=false") / claim
+            for premise in ("timing", "extraction", "bunched")
+        }
         assert round(point(cli, path, "intervene", "faster", "--set", "timing=false"), 3) == 0.004
+        assert [round(fractions[premise], 3) for premise in ("timing", "extraction")] == [0.056, 0.103]
+        assert round(fractions["bunched"], 2) == 0.93
         assert by_id["value-of-information:bunched"]["value"] == pytest.approx(1.5e-5, rel=0.05)
         assert round(by_id["value-of-information:timing"]["value"], 3) == 0.009
 

@@ -144,6 +144,23 @@ def combined_remedy_only(path: Path) -> Path:
     )
 
 
+def exclusive_bound_by_set(path: Path) -> Path:
+    """``A`` makes ``C`` certain and ``D`` even, and ``C`` and ``D`` are exclusive; every base is 0 but ``T``'s.
+
+    Without ``--set``, ``--given D=true`` fails on ``D``'s base alone; with ``--set A=true`` it fails only through ``x``.
+    """
+    return write(
+        path,
+        *(Node(n, base=0.0) for n in "ACD"),
+        Node("T", base=0.5),
+        relations=(
+            Relation("r1", "supports", "A", "C", strength=1.0),
+            Relation("r2", "supports", "A", "D", strength=0.5),
+            Relation("x", "exclusive", "C", "D"),
+        ),
+    )
+
+
 def query_args(kind: str, target: str, items: list[tuple[str, str]]) -> list[str]:
     """Build the arguments of a query from its kind, target and ``(flag, NODE=value)`` items."""
     args = [kind, target, "--draws", "0"]
@@ -292,6 +309,15 @@ CASES = {
         [("--given", "a=true"), ("--given", "b=true"), ("--given", "c=true"), ("--given", "d=true")],
         GIVEN,
         {"must": ["drop all of --given a=true, --given c=true", "exclusive relations"], "must_not": ["'x'", "'y'"]},
+        None,
+    ),
+    "given-under-set-meets-exclusive": (
+        exclusive_bound_by_set,
+        "intervene",
+        "T",
+        [("--set", "A=true"), ("--given", "D=true")],
+        GIVEN,
+        {"must": ["exclusive relations", "drop --given D=true", "move strength:r1"], "must_not": ["drop any"]},
         None,
     ),
     "equivalent-bases-move-together": (
@@ -446,6 +472,21 @@ def test_exclusive_relation_that_is_not_the_cause(cli, tmp_path):
     items = [("--given", "A=true"), ("--given", "B=true")]
     assert not succeeds(cli, changed(path, removed={"x"}), "conditional", "B", items)
     assert "exclusive_relation" not in cli.error("query", path, *query_args("conditional", "B", items))["details"]
+
+
+def test_exclusive_bound_by_set_is_the_cause(cli, tmp_path):
+    """Test that the context of ``--given`` values that fail under ``--set`` is judged under that ``--set``.
+
+    The ``--given`` value fails without ``--set`` on a base alone, but the command fails only through
+    the exclusive relation: without it, the same command succeeds.
+    """
+    path = exclusive_bound_by_set(tmp_path / "g.json")
+    items = [("--set", "A=true"), ("--given", "D=true")]
+    hint = cli.error("query", path, *query_args("intervene", "T", items))["hint"]
+    assert "the --given values have probability zero under the graph's credences and exclusive relations" in hint
+    result = cli.run("query", changed(path, removed={"x"}), *query_args("intervene", "T", items), "--json")
+    assert result.exit_code == 0
+    assert '"point": 0.5' in result.output
 
 
 def count_moves(monkeypatch) -> list[int]:

@@ -31,7 +31,7 @@ from credencegraph.diagnostics import (
     single_points_of_failure,
     value_of_information,
 )
-from credencegraph.inference import Enumeration, VariableElimination, marginal
+from credencegraph.inference import Engine, Enumeration, Query, VariableElimination, marginal
 from credencegraph.semantics import ParameterKey, compile_graph
 
 ENGINES = [pytest.param(VariableElimination(), id="elimination"), pytest.param(Enumeration(), id="enumeration")]
@@ -125,57 +125,114 @@ def test_crux(network, engine):
 
 @pytest.mark.parametrize("engine", ENGINES)
 class TestSinglePointOfFailure:
-    """P(T | do(A = 0)) = (1 - r) H = 0.095 and P(T | do(B = 0)) = G t = 0.204."""
+    """P(T | do(A = 0)) = (1 - r) H and P(T | do(B = 0)) = G t, against P(T) = G H.
+
+    As fractions of P(T) these are (1 - r) / G = 0.294 and t / H = 0.632.
+    """
 
     def test_default_threshold(self, network, engine):
-        """Test that only A, whose failure leaves 0.095, is below the default 0.1."""
-        (finding,) = single_points_of_failure(network, "T", engine=engine)
+        """Test that neither failure takes T below a tenth of P(T), the default."""
+        assert single_points_of_failure(network, "T", engine=engine) == []
+
+    def test_higher_threshold(self, network, engine):
+        """Test that a threshold of 0.5 catches A, 0.7 also B, and the list runs lowest first."""
+        (finding,) = single_points_of_failure(network, "T", threshold=0.5, engine=engine)
         assert finding.id == "single-point-of-failure:A"
         assert finding.diagnostic == SINGLE_POINT_OF_FAILURE
         assert finding.nodes == ("A",)
         close(finding.value, (1 - r) * H)
         close(finding.details["baseline"], G * H)
+        assert finding.details["threshold"] == 0.5
         assert "falls from 0.323 to 0.095" in finding.message
-
-    def test_higher_threshold(self, network, engine):
-        """Test that a threshold of 0.25 also catches B, and the list runs lowest first."""
-        findings = single_points_of_failure(network, "T", threshold=0.25, engine=engine)
+        findings = single_points_of_failure(network, "T", threshold=0.7, engine=engine)
         assert [f.id for f in findings] == ["single-point-of-failure:A", "single-point-of-failure:B"]
         close(findings[1].value, G * t)
 
-    def test_downstream_and_already_low_target(self, engine):
-        """Test that with P(T) = 0.05 below the threshold, only an actual drop is reported.
+    def test_already_low_target_is_ranked(self, engine):
+        """Test that with P(T) = 0.095, below 0.1, the default reports the premise that sinks T only.
 
-        X -> T by ``requires`` with strength 1, and T -> D by ``supports``. do(D = 0) leaves P(T) at
-        0.05 and is not reported; do(X = 0) takes it to 0.
+        X ``requires`` T with strength 1, W ``supports`` T with strength 0.2, and T -> D by
+        ``supports``: P(T) = x (1 - (1 - t)(1 - w s)) = 0.5 (1 - 0.9 * 0.9) = 0.095. do(X = 0) takes
+        it to 0; do(W = 0) to x t = 0.05, a dent of about half, which is below 0.1 but not below a
+        tenth of P(T); do(D = 0) leaves it where it was.
         """
         graph = Graph()
         graph.add_node(Node("X", base=0.5))
+        graph.add_node(Node("W", base=0.5))
         graph.add_node(Node("T", base=0.1))
         graph.add_node(Node("D", base=0.2))
         graph.add_relation(Relation("XT", "requires", "X", "T", strength=1.0))
+        graph.add_relation(Relation("WT", "supports", "W", "T", strength=0.2))
         graph.add_relation(Relation("TD", "supports", "T", "D", strength=0.9))
-        (finding,) = single_points_of_failure(compile_graph(graph), "T", engine=engine)
+        network = compile_graph(graph)
+        close(marginal(network, "T", draws=0, engine=engine).point, 0.095)
+        (finding,) = single_points_of_failure(network, "T", engine=engine)
         assert finding.id == "single-point-of-failure:X"
         assert finding.value == 0.0
+        findings = single_points_of_failure(network, "T", threshold=1.0, engine=engine)
+        assert [f.id for f in findings] == ["single-point-of-failure:X", "single-point-of-failure:W"]
+        close(findings[1].value, 0.05)
 
-    def test_probability_equal_to_threshold_is_not_reported(self, engine):
-        """Test that falling to 0.28 on paper, 0.27999999999999997 in floating point, is not below 0.28.
+    def test_failure_of_an_improbable_target_is_reported(self, engine):
+        """Test that a premise taking P(T) = 5e-16 to 0 is reported: the rounding slack scales with P(T).
 
-        X supports T with strength 0.5, W (certain) supports T with strength 0.2 and T's base is 0.1,
-        so do(X = 0) leaves 0.1 * 0.8 + 0.2 = 0.28; it is flagged once the threshold is raised above it.
+        X (base 0.5) ``requires`` T with strength 1 and T's base is 1e-15, so P(T) = 5e-16 and do(X = 0)
+        leaves exactly 0. An absolute slack of 1e-12 would put the cutoff below zero and hide it.
         """
         graph = Graph()
         graph.add_node(Node("X", base=0.5))
-        graph.add_node(Node("W", base=1.0))
-        graph.add_node(Node("T", base=0.1))
-        graph.add_relation(Relation("XT", "supports", "X", "T", strength=0.5))
-        graph.add_relation(Relation("WT", "supports", "W", "T", strength=0.2))
-        network = compile_graph(graph)
-        assert single_points_of_failure(network, "T", threshold=0.28, engine=engine) == []
-        (finding,) = single_points_of_failure(network, "T", threshold=0.2801, engine=engine)
+        graph.add_node(Node("T", base=1e-15))
+        graph.add_relation(Relation("XT", "requires", "X", "T", strength=1.0))
+        (finding,) = single_points_of_failure(compile_graph(graph), "T", engine=engine)
         assert finding.id == "single-point-of-failure:X"
-        assert finding.value < 0.28
+        assert finding.value == 0.0
+        close(finding.details["baseline"], 5e-16)
+
+    def test_probability_equal_to_threshold_is_not_reported(self, engine):
+        """Test that falling to exactly half of P(T) is not below half of it.
+
+        X (base 0.5) supports T with strength 0.5 and T's base is 0.2, so P(T) = 1 - 0.8 * 0.75 = 0.4
+        and do(X = 0) leaves exactly the base, half of it; both come out as 0.2 in floating point. It
+        is flagged once the threshold is raised.
+        """
+        graph = Graph()
+        graph.add_node(Node("X", base=0.5))
+        graph.add_node(Node("T", base=0.2))
+        graph.add_relation(Relation("XT", "supports", "X", "T", strength=0.5))
+        network = compile_graph(graph)
+        assert single_points_of_failure(network, "T", threshold=0.5, engine=engine) == []
+        (finding,) = single_points_of_failure(network, "T", threshold=0.5001, engine=engine)
+        assert finding.id == "single-point-of-failure:X"
+        close(finding.value, 0.2)
+
+    def test_rounding_slack_is_relative(self, engine):
+        """Test that a failure within 1e-12 of t P(T), relatively, is not reported and one beyond it is.
+
+        The engine is wrapped so that do(X = 0) returns t P(T) scaled by 1 - 5e-13 or by 1 - 5e-12,
+        whatever the network's own numbers, so the cutoff is checked without relying on rounding.
+        """
+        graph = Graph()
+        graph.add_node(Node("X", base=0.5))
+        graph.add_node(Node("T", base=0.2))
+        graph.add_relation(Relation("XT", "supports", "X", "T", strength=0.5))
+        network = compile_graph(graph)
+        baseline = engine.query(network, Query({"T": True}))
+
+        class Shifted(Engine):
+            def __init__(self, factor):
+                self.factor = factor
+
+            def probability(self, network, assignment):
+                return engine.probability(network, assignment)
+
+            def query(self, queried, query):
+                if queried is network:
+                    return baseline
+                return 0.5 * baseline * self.factor
+
+        assert single_points_of_failure(network, "T", threshold=0.5, engine=Shifted(1 - 5e-13)) == []
+        (finding,) = single_points_of_failure(network, "T", threshold=0.5, engine=Shifted(1 - 5e-12))
+        assert finding.id == "single-point-of-failure:X"
 
     def test_bad_threshold(self, network, engine):
         """Test that a threshold outside [0, 1] is rejected."""
