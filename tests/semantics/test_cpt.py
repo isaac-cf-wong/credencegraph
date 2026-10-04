@@ -57,6 +57,17 @@ class TestPropositionTable:
         table = proposition_table(0.1, [Term(0, "supports", 0.5), Term(0, "supports", 0.2)], 1)
         close(table[1, 1], 1 - 0.9 * 0.5 * 0.8)
 
+    def test_tiny_base_is_kept(self):
+        """Test that a base of 1e-15 survives to 1e-12 relative wherever support is inactive.
+
+        Formed as 1 - (1 - b), a base of 1e-15 comes back as 9.992e-16, off by 8e-4 relative.
+        """
+        table = proposition_table(1e-15, [Term(0, "requires", 1.0), Term(1, "supports", 0.5)], 2)
+        close(table[1, 0, 1], 1e-15)
+        close(table[1, 1, 1], 0.5 + 0.5e-15)
+        assert table[0, 0, 1] == 0.0
+        close(proposition_table(1e-15, [], 0)[1], 1e-15)
+
     def test_rows_sum_to_one(self):
         """Test that each parent configuration gives a distribution."""
         table = proposition_table(0.4, [Term(0, "supports", 0.3), Term(1, "refutes", 0.6)], 2)

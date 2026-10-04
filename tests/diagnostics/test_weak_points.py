@@ -31,7 +31,7 @@ from credencegraph.diagnostics import (
     single_points_of_failure,
     value_of_information,
 )
-from credencegraph.inference import Enumeration, VariableElimination, marginal
+from credencegraph.inference import Engine, Enumeration, Query, VariableElimination, marginal
 from credencegraph.semantics import ParameterKey, compile_graph
 
 ENGINES = [pytest.param(VariableElimination(), id="elimination"), pytest.param(Enumeration(), id="enumeration")]
@@ -186,14 +186,14 @@ class TestSinglePointOfFailure:
         (finding,) = single_points_of_failure(compile_graph(graph), "T", engine=engine)
         assert finding.id == "single-point-of-failure:X"
         assert finding.value == 0.0
-        # The engine forms T's base as 1 - (1 - 1e-15), which cancels to about 4.996e-16.
-        np.testing.assert_allclose(finding.details["baseline"], 5e-16, rtol=1e-3, atol=0.0)
+        close(finding.details["baseline"], 5e-16)
 
     def test_probability_equal_to_threshold_is_not_reported(self, engine):
-        """Test that falling to half of P(T) on paper, 0.19999999999999996 against 0.19999999999999998, is not below it.
+        """Test that falling to exactly half of P(T) is not below half of it.
 
         X (base 0.5) supports T with strength 0.5 and T's base is 0.2, so P(T) = 1 - 0.8 * 0.75 = 0.4
-        and do(X = 0) leaves exactly the base, half of it; it is flagged once the threshold is raised.
+        and do(X = 0) leaves exactly the base, half of it; both come out as 0.2 in floating point. It
+        is flagged once the threshold is raised.
         """
         graph = Graph()
         graph.add_node(Node("X", base=0.5))
@@ -204,6 +204,35 @@ class TestSinglePointOfFailure:
         (finding,) = single_points_of_failure(network, "T", threshold=0.5001, engine=engine)
         assert finding.id == "single-point-of-failure:X"
         close(finding.value, 0.2)
+
+    def test_rounding_slack_is_relative(self, engine):
+        """Test that a failure within 1e-12 of t P(T), relatively, is not reported and one beyond it is.
+
+        The engine is wrapped so that do(X = 0) returns t P(T) scaled by 1 - 5e-13 or by 1 - 5e-12,
+        whatever the network's own numbers, so the cutoff is checked without relying on rounding.
+        """
+        graph = Graph()
+        graph.add_node(Node("X", base=0.5))
+        graph.add_node(Node("T", base=0.2))
+        graph.add_relation(Relation("XT", "supports", "X", "T", strength=0.5))
+        network = compile_graph(graph)
+        baseline = engine.query(network, Query({"T": True}))
+
+        class Shifted(Engine):
+            def __init__(self, factor):
+                self.factor = factor
+
+            def probability(self, network, assignment):
+                return engine.probability(network, assignment)
+
+            def query(self, queried, query):
+                if queried is network:
+                    return baseline
+                return 0.5 * baseline * self.factor
+
+        assert single_points_of_failure(network, "T", threshold=0.5, engine=Shifted(1 - 5e-13)) == []
+        (finding,) = single_points_of_failure(network, "T", threshold=0.5, engine=Shifted(1 - 5e-12))
+        assert finding.id == "single-point-of-failure:X"
 
     def test_bad_threshold(self, network, engine):
         """Test that a threshold outside [0, 1] is rejected."""
