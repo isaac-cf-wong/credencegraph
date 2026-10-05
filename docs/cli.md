@@ -148,10 +148,10 @@ so the query has no answer. The command works out the cause:
 
 A `problem-too-large` error means exact inference would build an intermediate
 factor above the limit, in table entries; `details.required` is the size of the
-first such factor and `details.limit` the limit. `query` takes the limit as
-`--max-factor-size` (default 2²²), so passing at least `details.required` lets
-that factor through, though a later one may need more. The search for remedies
-to a `zero-probability` error runs under the same limit.
+first such factor and `details.limit` the limit. `query` and `diagnose` take the
+limit as `--max-factor-size` (default 2²²), so passing at least
+`details.required` lets that factor through, though a later one may need more.
+The search for remedies to a `zero-probability` error runs under the same limit.
 
 Values that contradict each other outright are refused before any inference, as
 an `invalid-argument`: two equivalent nodes given different values by `--given`
