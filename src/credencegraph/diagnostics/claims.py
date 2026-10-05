@@ -97,7 +97,8 @@ def claims(
     Returns:
         One finding per node whose stated and computed credences differ by more than ``threshold``,
         in insertion order. Its value is the signed gap in probability, stated minus computed, which
-        stays finite when the log-odds gap is not.
+        stays finite when the log-odds gap is not. Its details are ``stated`` and ``computed``, in
+        probability, and ``threshold_log_odds``, the threshold applied, in natural log-odds.
 
     Raises:
         ValidationError: If ``threshold`` is not a finite number >= 0.
@@ -128,7 +129,7 @@ def claims(
                 ),
                 nodes=(node.id,),
                 value=gap,
-                details={"stated": stated, "computed": computed, "threshold": limit},
+                details={"stated": stated, "computed": computed, "threshold_log_odds": limit},
             )
         )
     return findings
