@@ -30,6 +30,12 @@ is observed in every query, which makes P(T) = P(T, C) / P(C) a ratio of two
 such lines; the two-point difference is then not the derivative, and the
 quotient rule is used instead, again from the values at θ = 0 and θ = 1.
 
+**Claims are compared in log-odds but reported in probability.** A `claims`
+finding's `value` is the signed gap stated − computed, and its `details` hold
+`stated` and `computed`, all probabilities; the threshold it was tested against
+is in natural log-odds and is named for its unit, `threshold_log_odds`, so the
+two scales cannot be confused in the JSON report.
+
 **Crux is the primary weak-point ranking.** A steep derivative on a parameter
 known exactly, or a wide credence the target ignores, both score zero.
 

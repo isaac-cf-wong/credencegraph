@@ -54,6 +54,14 @@ def test_within_threshold_is_silent():
     assert [f.id for f in claims(graph, threshold=0.05)] == ["overclaim:B"]
 
 
+def test_threshold_detail_names_its_unit():
+    """Test that the threshold in a finding's details is keyed by its unit, log-odds, unlike the probabilities beside it."""
+    (finding,) = claims(chain(stated_b=0.9), threshold=math.log(10))
+    assert set(finding.details) == {"stated", "computed", "threshold_log_odds"}
+    assert finding.details["threshold_log_odds"] == math.log(10)
+    assert finding.to_dict()["details"]["threshold_log_odds"] == math.log(10)
+
+
 def test_beta_stated_uses_its_mean():
     """Test that a Beta(9, 1) stated credence is compared through its mean, 0.9."""
     (finding,) = claims(chain(stated_b=Beta(9, 1)))
