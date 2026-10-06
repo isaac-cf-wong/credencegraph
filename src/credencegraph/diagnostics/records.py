@@ -71,6 +71,18 @@ class Finding:
         }
 
 
+def render_evidence(evidence: Mapping[str, bool]) -> str:
+    """Write evidence for a finding's message the way it is typed on the command line.
+
+    Args:
+        evidence: Node ids and their observed values.
+
+    Returns:
+        ``a=true, b=false``.
+    """
+    return ", ".join(f"{node_id}={str(value).lower()}" for node_id, value in evidence.items())
+
+
 def probability_threshold(value: object, name: str) -> float:
     """Validate a threshold on a probability.
 

@@ -68,16 +68,20 @@ These are Bayes' theorem with a likelihood ratio of 4 per observation: 0.3 · 0.
 observations are independent given H, which is what two measurements of the same
 quantity usually are.
 
-The cost is in the diagnostics. They describe the graph before anything is
-observed, so `diagnose obs.json --target H` reports P(H) = 0.3, sensitivities of
-zero for both observations' parameters, and would compare a stated credence for
-H with the prior 0.3 rather than with the posterior, because the observations
-only move H once they are conditioned on. What it does report is the value of
-information: learning `o1` would give 0.236 bits about `H`. An argument encoded
-in the premise-to-claim direction, `o1 --supports--> H`, is diagnosed directly,
-but reads differently: a negative observation then returns H to its base rather
-than lowering it below the prior, and several observations combine as
-independent reasons rather than as repeated measurements.
+The diagnostics need the observations passed as evidence. Without it they
+describe the graph before anything is observed, so
+`diagnose obs.json --target H` reports P(H) = 0.3, sensitivities of zero for
+both observations' parameters, and would compare a stated credence for H with
+the prior 0.3 rather than with the posterior; what it does report is the value
+of information: learning `o1` would give 0.236 bits about `H`.
+`diagnose obs.json --target H --given o1=true` reports them given the
+observation instead: sensitivities of P(H | o1) = 0.6316, such as 1.108 for the
+base of H, a stated credence compared with 0.6316, and the information `o2`
+would add once `o1` is known. An argument encoded in the premise-to-claim
+direction, `o1 --supports--> H`, is diagnosed directly, but reads differently: a
+negative observation then returns H to its base rather than lowering it below
+the prior, and several observations combine as independent reasons rather than
+as repeated measurements.
 
 ## How support and refutation combine
 

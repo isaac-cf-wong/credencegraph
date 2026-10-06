@@ -448,6 +448,47 @@ def parse_assignment(items: Iterable[str], option: str, *, default: bool | None 
     return assignment
 
 
+def check_consistent(network: Network, evidence: dict[str, bool], interventions: dict[str, bool]) -> None:
+    """Refuse values that contradict each other outright, before any inference.
+
+    Nodes merged by ``equivalent`` relations are one proposition, so ``--set`` or ``--given`` must give
+    them the same value, and ``--given`` must agree with ``--set`` on a proposition it fixes.
+
+    Args:
+        network: The compiled network.
+        evidence: The ``--given`` values.
+        interventions: The ``--set`` values.
+
+    Raises:
+        CliError: If two merged nodes get different values from one flag, or ``--given`` contradicts ``--set``.
+    """
+    for flag, assignment in (("--set", interventions), ("--given", evidence)):
+        seen: dict[int, tuple[str, bool]] = {}
+        for node_id, value in assignment.items():
+            other, previous = seen.setdefault(network.index(node_id), (node_id, value))
+            if previous != value:
+                raise CliError(
+                    INVALID_ARGUMENT,
+                    f"{flag} gives the equivalent nodes {other!r} and {node_id!r} different values",
+                    f"equivalent nodes are one proposition; give them the same {flag} value, or pass {flag} for only one",
+                )
+    fixed = {network.index(node_id): (node_id, value) for node_id, value in interventions.items()}
+    for node_id, value in evidence.items():
+        other, setting = fixed.get(network.index(node_id), (node_id, value))
+        if setting != value:
+            merged = "" if other == node_id else f", and {other!r} and {node_id!r} are equivalent"
+            raise CliError(
+                INVALID_ARGUMENT,
+                f"--given {format_item(node_id, value)} contradicts --set {format_item(other, setting)}{merged}",
+                "a proposition fixed by --set holds that value; drop the --given, or give it the --set value",
+            )
+
+
+def format_item(node_id: str, value: bool) -> str:
+    """Write an assignment the way it is typed: ``NODE=true``."""
+    return f"{node_id}={str(value).lower()}"
+
+
 def require_nodes(graph: Graph, node_ids: Iterable[str], role: str) -> None:
     """Check that every id names a node of the graph.
 

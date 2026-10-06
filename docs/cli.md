@@ -22,6 +22,7 @@ credencegraph query g.json marginal claim                          # P(claim) = 
 credencegraph query g.json conditional calibrated --given claim=true
 credencegraph query g.json intervene claim --set calibrated=false  # 0.1
 credencegraph diagnose g.json --target claim
+credencegraph diagnose g.json --target claim --given signal=true
 ```
 
 ## Commands
@@ -32,7 +33,7 @@ credencegraph diagnose g.json --target claim
 | `add-node` | Add a node: `--id`, and optionally `--statement`, `--kind`, `--base`, `--stated`, `--source`.    |
 | `relate`   | Add a relation `SOURCE TARGET --type TYPE`, with `--strength` where the type needs one.          |
 | `query`    | `marginal`, `joint`, `conditional` or `intervene`, with `--given`, `--set`, `--draws`, `--seed`. |
-| `diagnose` | The findings of every diagnostic; with `--target`, the weak points of that node too.             |
+| `diagnose` | Every diagnostic's findings; `--target` adds that node's weak points, `--given` conditions them. |
 | `check`    | Whether the file is a valid graph that compiles; a graph that does not is a `compile-error`.     |
 | `version`  | The installed version.                                                                           |
 
@@ -46,12 +47,41 @@ several.
 **Query targets and evidence** are `NODE=true` or `NODE=false`; a bare `NODE`
 target means true. A `marginal` query takes one target and a `joint` query
 several. Any kind of query accepts `--given`; only `intervene` accepts `--set`.
+`diagnose` accepts `--given` too, with the same form and the same rules for
+equivalent nodes; see [Diagnosing under evidence](#diagnosing-under-evidence).
 The relation id defaults to `SOURCE-TYPE-TARGET`; pass `--id` to add a second
 relation of the same type between the same nodes.
 
 A relation type outside `requires`, `supports`, `refutes`, `equivalent` and
 `exclusive` is an annotation, which inference ignores. A type close to an
 inferential one, such as `support`, is still stored, but the command warns.
+
+## Diagnosing under evidence
+
+`diagnose` without `--given` describes the graph before anything is observed.
+With `--given NODE=true|false`, repeated for several, every inference diagnostic
+is taken given those values, E:
+
+- **Overclaim and underclaim** compare a node's `stated` credence with P(X | E).
+  A node that is itself observed, or equivalent to an observed node, is skipped:
+  its value is the observation, not something its premises deliver.
+- **Sensitivity** is ∂P(T | E)/∂θ, and **crux** |∂P(T | E)/∂θ| · sd(θ), where
+  sd(θ) is that of the parameter's own credence: parameters are not updated on
+  the evidence. P(T | E) is a ratio, so these derivatives come from the quotient
+  rule rather than from P(T | E) at θ = 1 minus at θ = 0; see the
+  [diagnostics](api/diagnostics/index.md).
+- **Single points of failure** compare P(T | do(Y = false), E) with P(T | E).
+  Observed variables are not candidates, nor is a variable whose failure the
+  evidence rules out, P(E | do(Y = false)) = 0.
+- **Value of information** is I(T; Y | E), over the unobserved variables Y.
+
+The target may not be observed, directly or through an equivalent node: its
+diagnostics would all be trivial. That, and a `--given` node that is not an
+inference variable, is an `invalid-argument` or `unknown-node`. Evidence that
+the graph gives probability zero is a `zero-probability` error naming `--given`,
+with the values in `details.given`; `query` with the same `--given` values names
+the remedies. The JSON response adds `"given"` after `"target"` when evidence
+was passed; without `--given` it is unchanged.
 
 ## JSON output
 
@@ -110,8 +140,8 @@ A `zero-probability` error means the evidence of a query has probability zero,
 so the query has no answer. The command works out the cause:
 
 - If the query fails without its `--given` and `--set` values, or none were
-  passed, as with `diagnose`, the cause is the graph: no world satisfies every
-  `exclusive` relation, which needs a base or strength of exactly 0 or 1.
+  passed, the cause is the graph: no world satisfies every `exclusive` relation,
+  which needs a base or strength of exactly 0 or 1.
 - Otherwise the passed values are the cause, and everything the error names is
   established by running the same command, of the same kind, with that one thing
   changed. The message names a flag when the query fails with that flag's values
@@ -155,8 +185,8 @@ The search for remedies to a `zero-probability` error runs under the same limit.
 
 Values that contradict each other outright are refused before any inference, as
 an `invalid-argument`: two equivalent nodes given different values by `--given`
-or by `--set`, and a `--given` value that contradicts the `--set` value of the
-same proposition.
+(in `query` or `diagnose`) or by `--set`, and a `--given` value that contradicts
+the `--set` value of the same proposition.
 
 Without `--json`, a success prints a short summary and a failure prints
 `error: …` and `hint: …` on stderr. Malformed command lines, such as a missing
