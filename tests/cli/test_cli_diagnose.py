@@ -273,6 +273,14 @@ class TestDiagnoseGiven:
         assert error["code"] == "invalid-argument"
         assert "target 'H' is fixed" in error["message"]
 
+    def test_evidence_is_written_as_typed(self, cli, path):
+        """Test that a finding's message and a command-line error write evidence exactly as it was typed."""
+        typed = "o1=false"
+        findings = {f["id"]: f for f in cli.json("diagnose", path, "--given", typed)["findings"]}
+        assert f" given {typed}: " in findings["overclaim:H"]["message"]
+        error = cli.error("query", path, "intervene", "H", "--given", typed, "--set", "o1=true")
+        assert error["message"] == f"--given {typed} contradicts --set o1=true"
+
     def test_impossible_evidence_points_at_given(self, cli, tmp_path):
         """Test that evidence the graph rules out is a zero-probability error naming --given."""
         path = tmp_path / "g.json"
