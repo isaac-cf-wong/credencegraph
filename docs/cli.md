@@ -23,19 +23,20 @@ credencegraph query g.json conditional calibrated --given claim=true
 credencegraph query g.json intervene claim --set calibrated=false  # 0.1
 credencegraph diagnose g.json --target claim
 credencegraph diagnose g.json --target claim --given signal=true
+credencegraph diagnose g.json --target signal --targets stated
 ```
 
 ## Commands
 
-| Command    | Does                                                                                             |
-| ---------- | ------------------------------------------------------------------------------------------------ |
-| `init`     | Create an empty graph file; `--force` replaces an existing one.                                  |
-| `add-node` | Add a node: `--id`, and optionally `--statement`, `--kind`, `--base`, `--stated`, `--source`.    |
-| `relate`   | Add a relation `SOURCE TARGET --type TYPE`, with `--strength` where the type needs one.          |
-| `query`    | `marginal`, `joint`, `conditional` or `intervene`, with `--given`, `--set`, `--draws`, `--seed`. |
-| `diagnose` | Every diagnostic's findings; `--target` adds that node's weak points, `--given` conditions them. |
-| `check`    | Whether the file is a valid graph that compiles; a graph that does not is a `compile-error`.     |
-| `version`  | The installed version.                                                                           |
+| Command    | Does                                                                                                |
+| ---------- | --------------------------------------------------------------------------------------------------- |
+| `init`     | Create an empty graph file; `--force` replaces an existing one.                                     |
+| `add-node` | Add a node: `--id`, and optionally `--statement`, `--kind`, `--base`, `--stated`, `--source`.       |
+| `relate`   | Add a relation `SOURCE TARGET --type TYPE`, with `--strength` where the type needs one.             |
+| `query`    | `marginal`, `joint`, `conditional` or `intervene`, with `--given`, `--set`, `--draws`, `--seed`.    |
+| `diagnose` | Every diagnostic's findings; `--target` or `--targets` adds weak points, `--given` conditions them. |
+| `check`    | Whether the file is a valid graph that compiles; a graph that does not is a `compile-error`.        |
+| `version`  | The installed version.                                                                              |
 
 **Credences** are written as a bare probability, `0.3`, or as a Beta
 distribution, `beta:ALPHA,BETA`, such as `beta:8,2`.
@@ -80,8 +81,61 @@ diagnostics would all be trivial. That, and a `--given` node that is not an
 inference variable, is an `invalid-argument` or `unknown-node`. Evidence that
 the graph gives probability zero is a `zero-probability` error naming `--given`,
 with the values in `details.given`; `query` with the same `--given` values names
-the remedies. The JSON response adds `"given"` after `"target"` when evidence
+the remedies. The JSON response adds `"given"` after `"targets"` when evidence
 was passed; without `--given` it is unchanged.
+
+## Diagnosing several targets
+
+`--target` may be repeated, and `--targets stated` adds every node with a
+`stated` credence: the claims a source makes, and so the natural targets. The
+`--target` nodes come first, in the order given, then the stated nodes in the
+graph's order, each once. `--targets stated` leaves out a stated node that takes
+no part in inference or that is observed, directly or through an equivalent
+node, for the reason the overclaim check skips it; a `--target` node that is
+observed is still an error. `--targets` accepts no value but `stated`.
+
+The graph-wide checks (missing parameters, unanchored variables, overclaims and
+underclaims) run once, whatever the number of targets, and each target's
+sensitivity, crux, single points of failure and value of information follow, in
+the order of the targets. With no target only the graph-wide checks run.
+
+With `--json`, `credencegraph diagnose g.json --target signal --targets stated`
+on the graph above prints, with one of its findings shown,
+
+```json
+{
+    "command": "diagnose",
+    "path": "g.json",
+    "targets": ["signal", "claim"],
+    "findings": [
+        {
+            "id": "crux:strength:signal-supports-claim",
+            "diagnostic": "crux",
+            "nodes": ["signal", "claim"],
+            "relations": ["signal-supports-claim"],
+            "value": 0.004884,
+            "details": { "derivative": 0.0405, "sd": 0.1206 },
+            "message": "crux 0.00488 for the strength of supports relation 'signal-supports-claim': P('claim') moves 0.0405 per unit of it and its standard deviation is 0.121",
+            "target": "claim"
+        }
+    ]
+}
+```
+
+- `targets` lists the nodes diagnosed, after repeats are dropped and
+  `--targets stated` is resolved; `[]` without a target.
+- `given`, after `targets`, is present only with `--given`.
+- `findings` holds the graph-wide findings, then each target's. Every finding
+  has `id`, `diagnostic`, `nodes`, `relations`, `value` (a number, or `null` for
+  a structural finding), `details` and a one-line `message`, as in the
+  [diagnostics](api/diagnostics/index.md), and `target`: `null` for a graph-wide
+  finding, and the target's id for a weak point. An `id` is unique among the
+  findings with the same `target`; the same `id` can recur for another target,
+  as the crux of a premise two claims share does.
+
+The Python form is `diagnose_many(graph, targets)`, whose `Report` holds the
+graph-wide `findings` and the `weak_points` of each target; `report.to_dicts()`
+is the `findings` list above.
 
 ## JSON output
 

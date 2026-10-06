@@ -19,7 +19,7 @@ from credencegraph.diagnostics.records import (
     VALUE_OF_INFORMATION,
     Finding,
 )
-from credencegraph.diagnostics.report import diagnose
+from credencegraph.diagnostics.report import Report, diagnose, diagnose_many
 from credencegraph.diagnostics.structure import missing_parameters, unanchored
 from credencegraph.diagnostics.weak_points import (
     DEFAULT_FAILURE_THRESHOLD,
@@ -42,10 +42,12 @@ __all__ = [
     "UNDERCLAIM",
     "VALUE_OF_INFORMATION",
     "Finding",
+    "Report",
     "claims",
     "crux",
     "derivatives",
     "diagnose",
+    "diagnose_many",
     "missing_parameters",
     "sensitivity",
     "single_points_of_failure",
