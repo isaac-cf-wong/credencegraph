@@ -60,7 +60,7 @@ class TestQueryForms:
     def test_marginal_of_a_tiny_base(self, engine):
         """Test that P(T) = P(X) b = 0.5 x 1e-15 = 5e-16 holds to 1e-12 relative for T's base b = 1e-15.
 
-        X (base 0.5) ``requires`` T with strength 1, so the leak b reaches P(T) only through the cell
+        T ``requires`` X (base 0.5) with strength 1, so the leak b reaches P(T) only through the cell
         where X holds and no support is active.
         """
         graph = Graph()
