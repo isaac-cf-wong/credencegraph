@@ -104,6 +104,20 @@ class TestLikelihoodDirection:
         assert findings["value-of-information:o1"]["value"] == pytest.approx(information, rel=1e-9, abs=0.0)
         assert round(information, 3) == 0.236
 
+    def test_diagnostics_given_an_observation(self, cli, path):
+        """Test the documented diagnostics given o1: derivative of Bayes' theorem by the base of H.
+
+        P(H | o1) = h L / D with D = h L + (1 - h) b, so dP/dh = L b / D^2 = 0.16 / 0.38^2 = 1.108.
+        """
+        output = cli.json("diagnose", path, "--target", "H", "--given", "o1=true")
+        findings = {finding["id"]: finding for finding in output["findings"]}
+        denominator = PRIOR * LIKE_H + (1 - PRIOR) * LIKE_NOT_H
+        slope = findings["sensitivity:base:H"]["value"]
+        assert slope == pytest.approx(LIKE_H * LIKE_NOT_H / denominator**2, rel=1e-12, abs=0.0)
+        assert round(slope, 3) == 1.108
+        assert "value-of-information:o1" not in findings
+        assert "value-of-information:o2" in findings
+
 
 class TestVeto:
     """A refuter acts as a veto on a support of the same strength."""

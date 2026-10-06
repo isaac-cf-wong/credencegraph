@@ -196,3 +196,111 @@ def test_unanticipated_validation_error(cli, graph_file, mocker):
     error = cli.error("diagnose", graph_file, "--target", "claim")
     assert (error["code"], error["message"], error["details"]) == ("invalid-argument", "bad value", {})
     assert error["hint"] == "check the arguments against 'credencegraph diagnose --help'"
+
+
+def observed_graph() -> Graph:
+    """A hypothesis H, stated at 0.9, with two observations of it, and a node merged with the first."""
+    return graph_with(
+        Node("H", base=0.3, stated=0.9),
+        Node("o1", base=0.2),
+        Node("o2", base=0.2),
+        Node("o1c"),
+        relations=(
+            Relation("H1", "supports", "H", "o1", strength=0.75),
+            Relation("H2", "supports", "H", "o2", strength=0.75),
+            Relation("same", "equivalent", "o1", "o1c"),
+        ),
+    )
+
+
+class TestDiagnoseGiven:
+    """``diagnose --given`` runs every inference diagnostic under the evidence."""
+
+    @pytest.fixture
+    def path(self, tmp_path):
+        """Write the observation graph."""
+        path = tmp_path / "obs.json"
+        dump(observed_graph(), path)
+        return path
+
+    def test_findings_are_the_library_ones(self, cli, path):
+        """Test that the findings are the library's under the same evidence, and the evidence is echoed."""
+        output = cli.json("diagnose", path, "--target", "H", "--given", "o1=true", "--given", "o2=false")
+        evidence = {"o1": True, "o2": False}
+        expected = [finding.to_dict() for finding in diagnose(observed_graph(), "H", evidence=evidence)]
+        assert output == {
+            "command": "diagnose",
+            "path": str(path),
+            "target": "H",
+            "given": evidence,
+            "findings": expected,
+        }
+        assert expected != [finding.to_dict() for finding in diagnose(observed_graph(), "H")]
+
+    def test_without_given_is_unchanged(self, cli, path):
+        """Test that without --given the response has no ``given`` key and the unconditioned findings."""
+        output = cli.json("diagnose", path, "--target", "H")
+        assert list(output) == ["command", "path", "target", "findings"]
+        assert output["findings"] == [finding.to_dict() for finding in diagnose(observed_graph(), "H")]
+
+    def test_given_without_target(self, cli, path):
+        """Test that the graph-wide checks take the evidence too: the posterior settles the overclaim."""
+        assert [f["id"] for f in cli.json("diagnose", path)["findings"]] == ["unanchored:H", "overclaim:H"]
+        output = cli.json("diagnose", path, "--given", "o1=true", "--given", "o2=true")
+        assert [f["id"] for f in output["findings"]] == ["unanchored:H"]
+
+    def test_malformed(self, cli, path):
+        """Test that --given needs an explicit value."""
+        error = cli.error("diagnose", path, "--target", "H", "--given", "o1")
+        assert error["code"] == "invalid-argument"
+        assert "NODE=true|false" in error["message"]
+
+    def test_unknown_node(self, cli, path):
+        """Test that a --given node missing from the graph is named."""
+        error = cli.error("diagnose", path, "--target", "H", "--given", "o3=true")
+        assert error["code"] == "unknown-node"
+        assert error["details"] == {"node": "o3"}
+
+    def test_equivalent_nodes_given_different_values(self, cli, path):
+        """Test that merged nodes given different values are refused before any inference."""
+        error = cli.error("diagnose", path, "--target", "H", "--given", "o1=true", "--given", "o1c=false")
+        assert error["code"] == "invalid-argument"
+        assert "equivalent nodes 'o1' and 'o1c' different values" in error["message"]
+
+    def test_observed_target(self, cli, path):
+        """Test that observing the target is refused."""
+        error = cli.error("diagnose", path, "--target", "H", "--given", "H=true")
+        assert error["code"] == "invalid-argument"
+        assert "target 'H' is fixed" in error["message"]
+
+    def test_impossible_evidence_points_at_given(self, cli, tmp_path):
+        """Test that evidence the graph rules out is a zero-probability error naming --given."""
+        path = tmp_path / "g.json"
+        dump(graph_with(Node("A", base=0.0), Node("T", base=0.5)), path)
+        error = cli.error("diagnose", path, "--target", "T", "--given", "A=true")
+        assert error["code"] == "zero-probability"
+        assert "--given" in error["message"]
+        assert "--given" in error["hint"]
+        assert error["details"] == {"given": {"A": True}}
+
+    def test_impossible_graph_with_evidence_points_at_the_graph(self, cli, tmp_path):
+        """Test that a graph that fails without the evidence still points at the graph."""
+        path = tmp_path / "g.json"
+        dump(
+            graph_with(Node("A", base=1.0), Node("B", base=1.0), relations=(Relation("x", "exclusive", "A", "B"),)),
+            path,
+        )
+        error = cli.error("diagnose", path, "--target", "A", "--given", "B=true")
+        assert error["code"] == "zero-probability"
+        assert "--given" not in error["hint"]
+        assert "exactly 0 or 1" in error["hint"]
+
+    def test_missing_parameter_is_reported_with_evidence(self, cli, tmp_path):
+        """Test that a graph with a missing base gets its structural findings whatever the evidence."""
+        path = tmp_path / "g.json"
+        dump(
+            graph_with(Node("a", base=0.5), Node("b"), relations=(Relation("ab", "supports", "a", "b", strength=0.5),)),
+            path,
+        )
+        output = cli.json("diagnose", path, "--target", "b", "--given", "a=true")
+        assert [f["id"] for f in output["findings"]] == ["missing-parameter:base:b", "unanchored:a"]

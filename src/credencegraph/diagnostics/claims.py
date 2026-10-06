@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 
 from credencegraph.core.errors import ValidationError
 from credencegraph.core.graph import Graph
-from credencegraph.diagnostics.records import OVERCLAIM, ROUNDING, UNDERCLAIM, Finding
+from credencegraph.diagnostics.records import OVERCLAIM, ROUNDING, UNDERCLAIM, Finding, render_evidence
 from credencegraph.inference.elimination import VariableElimination
 from credencegraph.inference.engine import Engine, Query
 from credencegraph.semantics.compiler import compile_graph
@@ -67,12 +68,15 @@ def claims(
     graph: Graph,
     network: Network | None = None,
     *,
+    evidence: Mapping[str, bool] | None = None,
     threshold: float = DEFAULT_CLAIM_THRESHOLD,
     engine: Engine | None = None,
 ) -> list[Finding]:
     """Compare each node's ``stated`` credence with the probability its premises give it.
 
-    The computed value is the point answer ``P(X)`` of the network. The two are compared in
+    The computed value is the point answer ``P(X | evidence)`` of the network, ``P(X)`` when there
+    is no evidence. A node whose variable is observed is skipped: its value is then the observation,
+    not something its premises deliver. The two are compared in
     log-odds, ``logit(p) = ln(p / (1 - p))``, so that a gap counts by the factor between the odds
     rather than by the difference between the probabilities: 0.07 against 0.001 is far apart, 0.5
     against 0.569 is not. When the stated mean exceeds the computed value by more than ``threshold``
@@ -84,6 +88,7 @@ def claims(
     Args:
         graph: The graph.
         network: The network compiled from ``graph``; compiled here when omitted.
+        evidence: Node ids and their observed values; none by default.
         threshold: The largest gap that is not reported, in natural log-odds: ``ln(k)`` reports
             odds that differ by more than a factor of ``k``. A gap within 1e-12 of it counts as equal
             to it, so rounding cannot tip a finding either way. The default, ``2 ln(11 / 9)``, about
@@ -101,20 +106,26 @@ def claims(
         probability, and ``threshold_log_odds``, the threshold applied, in natural log-odds.
 
     Raises:
-        ValidationError: If ``threshold`` is not a finite number >= 0.
+        ValidationError: If ``threshold`` is not a finite number >= 0, or an evidence node is not an
+            inference variable.
         CompileError: If ``network`` is omitted and ``graph`` does not compile.
-        ZeroProbabilityError: If the ``exclusive`` constraints have probability zero.
+        ZeroProbabilityError: If the evidence and the ``exclusive`` constraints have probability zero.
     """
     limit = _claim_threshold(threshold)
     network = network if network is not None else compile_graph(graph)
     engine = engine or VariableElimination()
+    given = Query({}, evidence or {}).evidence
+    observed = {network.index(node_id) for node_id in given}
+    if given:
+        engine.query(network, Query({}, given))  # raises when the evidence has probability zero
     variables = {member for variable in network.variables for member in variable.members}
+    suffix = f" given {render_evidence(given)}" if given else ""
     findings: list[Finding] = []
     for node in graph:
-        if node.stated is None or node.id not in variables:
+        if node.stated is None or node.id not in variables or network.index(node.id) in observed:
             continue
         stated = node.stated.mean
-        computed = engine.query(network, Query({node.id: True}))
+        computed = engine.query(network, Query({node.id: True}, given))
         gap = stated - computed
         if abs(_log_odds_gap(stated, computed)) <= limit + ROUNDING:
             continue
@@ -124,7 +135,7 @@ def claims(
                 id=f"{diagnostic}:{node.id}",
                 diagnostic=diagnostic,
                 message=(
-                    f"node {node.id!r} is stated at {stated:.3g} but its premises give {computed:.3g}: "
+                    f"node {node.id!r} is stated at {stated:.3g} but its premises give {computed:.3g}{suffix}: "
                     f"the text asserts {abs(gap):.3g} {verb} confidence than its argument delivers"
                 ),
                 nodes=(node.id,),

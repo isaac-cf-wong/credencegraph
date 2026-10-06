@@ -18,7 +18,9 @@ from credencegraph.cli.common import (
     GraphPath,
     JsonOption,
     Result,
+    check_consistent,
     compile_checked,
+    format_item,
     parse_assignment,
     read_graph,
     require_variables,
@@ -73,47 +75,6 @@ def _check_shape(kind: str, target: dict[str, bool], given: dict[str, bool], set
         raise CliError(INVALID_ARGUMENT, "an intervene query needs an intervention", "pass --set NODE=true|false")
     if kind != "intervene" and setting:
         raise CliError(INVALID_ARGUMENT, f"a {kind} query takes no --set", "use 'intervene' to set a node")
-
-
-def _check_consistent(network: Network, evidence: dict[str, bool], interventions: dict[str, bool]) -> None:
-    """Refuse values that contradict each other outright, before any inference.
-
-    Nodes merged by ``equivalent`` relations are one proposition, so ``--set`` or ``--given`` must give
-    them the same value, and ``--given`` must agree with ``--set`` on a proposition it fixes.
-
-    Args:
-        network: The compiled network.
-        evidence: The ``--given`` values.
-        interventions: The ``--set`` values.
-
-    Raises:
-        CliError: If two merged nodes get different values from one flag, or ``--given`` contradicts ``--set``.
-    """
-    for flag, assignment in (("--set", interventions), ("--given", evidence)):
-        seen: dict[int, tuple[str, bool]] = {}
-        for node_id, value in assignment.items():
-            other, previous = seen.setdefault(network.index(node_id), (node_id, value))
-            if previous != value:
-                raise CliError(
-                    INVALID_ARGUMENT,
-                    f"{flag} gives the equivalent nodes {other!r} and {node_id!r} different values",
-                    f"equivalent nodes are one proposition; give them the same {flag} value, or pass {flag} for only one",
-                )
-    fixed = {network.index(node_id): (node_id, value) for node_id, value in interventions.items()}
-    for node_id, value in evidence.items():
-        other, setting = fixed.get(network.index(node_id), (node_id, value))
-        if setting != value:
-            merged = "" if other == node_id else f", and {other!r} and {node_id!r} are equivalent"
-            raise CliError(
-                INVALID_ARGUMENT,
-                f"--given {_item(node_id, value)} contradicts --set {_item(other, setting)}{merged}",
-                "a proposition fixed by --set holds that value; drop the --given, or give it the --set value",
-            )
-
-
-def _item(node_id: str, value: bool) -> str:
-    """Write an assignment the way it is typed: ``NODE=true``."""
-    return f"{node_id}={str(value).lower()}"
 
 
 def _fails(
@@ -226,7 +187,7 @@ def _broken_exclusive(graph: Graph, network: Network, items: list[tuple[str, str
     true = {}
     for flag, node_id, value in items:
         if value:
-            true.setdefault(network.index(node_id), f"{flag} {_item(node_id, value)}")
+            true.setdefault(network.index(node_id), f"{flag} {format_item(node_id, value)}")
     broken = []
     for relation in graph.relations.values():
         if relation.type != EXCLUSIVE:
@@ -332,7 +293,7 @@ def _impossible(  # noqa: PLR0913, PLR0917 - the command's whole context
     ]
     if not items or _fails(engine, network, target, {}, {}):
         return CliError(ZERO_PROBABILITY, str(error), IMPOSSIBLE_GRAPH_HINT)
-    labels = [f"{flag} {_item(node_id, value)}" for flag, node_id, value in items]
+    labels = [f"{flag} {format_item(node_id, value)}" for flag, node_id, value in items]
 
     def drop_clears(dropped: tuple[int, ...]) -> bool:
         kept = _split([item for i, item in enumerate(items) if i not in dropped])
@@ -463,7 +424,7 @@ def query_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to each 
         require_variables(graph, evidence, "--given")
         require_variables(graph, interventions, "--set")
         network = compile_checked(graph)
-        _check_consistent(network, evidence, interventions)
+        check_consistent(network, evidence, interventions)
         query = Query(target, evidence, interventions)
         engine = VariableElimination(max_factor_size)
         options = {"engine": engine, "draws": draws, "rng": seed}

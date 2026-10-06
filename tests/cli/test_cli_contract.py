@@ -260,7 +260,7 @@ class TestZeroProbabilityHint:
         assert self.GRAPH_REMEDY in error["hint"]
 
     def test_diagnose(self, cli, tmp_path):
-        """Test that ``diagnose``, which takes no evidence, points at the graph."""
+        """Test that ``diagnose`` without evidence points at the graph."""
         error = cli.error("diagnose", certain_exclusive(tmp_path), "--target", "A")
         assert error["code"] == "zero-probability"
         assert "--given" not in error["hint"]
