@@ -31,7 +31,7 @@ from credencegraph.diagnostics import (
     single_points_of_failure,
     value_of_information,
 )
-from credencegraph.inference import Engine, Enumeration, Query, VariableElimination, marginal
+from credencegraph.inference import Engine, Enumeration, Query, VariableElimination, ZeroProbabilityError, marginal
 from credencegraph.semantics import ParameterKey, compile_graph
 
 ENGINES = [pytest.param(VariableElimination(), id="elimination"), pytest.param(Enumeration(), id="enumeration")]
@@ -233,6 +233,23 @@ class TestSinglePointOfFailure:
         assert single_points_of_failure(network, "T", threshold=0.5, engine=Shifted(1 - 5e-13)) == []
         (finding,) = single_points_of_failure(network, "T", threshold=0.5, engine=Shifted(1 - 5e-12))
         assert finding.id == "single-point-of-failure:X"
+
+    def test_impossible_constraints_raise(self, engine):
+        """Test that a failure under which the exclusive constraints are impossible raises, with no evidence.
+
+        A and B are certain unless Y vetoes A, and are exclusive. Y true leaves only B, so P(B) = 1 and
+        the baseline is defined; failing Y makes both true, which the constraint rules out.
+        """
+        graph = Graph()
+        graph.add_node(Node("Y", base=0.5))
+        graph.add_node(Node("A", base=1.0))
+        graph.add_node(Node("B", base=1.0))
+        graph.add_relation(Relation("YA", "refutes", "Y", "A", strength=1.0))
+        graph.add_relation(Relation("AB", "exclusive", "A", "B"))
+        network = compile_graph(graph)
+        close(engine.query(network, Query({"B": True})), 1.0)
+        with pytest.raises(ZeroProbabilityError):
+            single_points_of_failure(network, "B", engine=engine)
 
     def test_bad_threshold(self, network, engine):
         """Test that a threshold outside [0, 1] is rejected."""
