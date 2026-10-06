@@ -26,6 +26,19 @@ class TestDiagnose:
         assert "overclaim:claim" in ids
         assert "crux:strength:r2" in ids
 
+    def test_every_parameter_a_point(self, cli, tmp_path):
+        """Test that a graph of plain numbers gets one crux record saying why, not a ranking of zeros."""
+        graph = Graph()
+        graph.add_node(Node("y", base=0.8))
+        graph.add_node(Node("t", base=0.9))
+        graph.add_relation(Relation("a", "requires", "y", "t", strength=0.9))
+        path = tmp_path / "points.json"
+        dump(graph, path)
+        output = cli.json("diagnose", path, "--target", "t")
+        cruxes = [finding for finding in output["findings"] if finding["diagnostic"] == "crux"]
+        assert [(finding["id"], finding["value"]) for finding in cruxes] == [("crux:t", None)]
+        assert cruxes[0]["message"].startswith("crux is undefined")
+
     def test_without_target(self, cli, graph_file):
         """Test that without a target only the graph-wide checks run."""
         output = cli.json("diagnose", graph_file)

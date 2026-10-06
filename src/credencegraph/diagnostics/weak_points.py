@@ -273,7 +273,9 @@ def crux_findings(
         evidence: The evidence the derivatives were taken under, named in the messages.
 
     Returns:
-        One finding per parameter, largest crux first.
+        One finding per parameter, largest crux first; or, when every crux is zero because no
+        parameter is both uncertain and one the target depends on, as when every parameter is a
+        ``Point``, a single structural finding ``crux:<target>`` that says so instead of a ranking.
     """
     findings = []
     for key, slope in slopes.items():
@@ -294,6 +296,18 @@ def crux_findings(
                 details={"derivative": slope, "sd": sd},
             )
         )
+    if not any(finding.value for finding in findings):
+        return [
+            Finding(
+                id=f"{CRUX}:{target}",
+                diagnostic=CRUX,
+                message=(
+                    f"crux is undefined: no parameter that {_probability(target, evidence)} depends on is uncertain; "
+                    "see sensitivity, or give the parameters Beta credences"
+                ),
+                nodes=(target,),
+            )
+        ]
     return _ranked(findings)
 
 
@@ -345,7 +359,9 @@ def crux(
         engine: The exact engine; variable elimination by default.
 
     Returns:
-        One finding per parameter, largest crux first.
+        One finding per parameter, largest crux first; or a single structural finding, with no
+        value, when no parameter the target depends on is uncertain, as when every one is a
+        ``Point``.
 
     Raises:
         ValidationError: If ``target`` or an evidence node is not an inference variable of the
