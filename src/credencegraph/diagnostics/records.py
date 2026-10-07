@@ -71,6 +71,21 @@ class Finding:
         }
 
 
+def render_item(node_id: str, value: bool) -> str:
+    """Write one node's value the way it is typed on the command line.
+
+    The command line uses this form too, in its own messages, so the two always read alike.
+
+    Args:
+        node_id: The node's id.
+        value: Its value.
+
+    Returns:
+        ``NODE=true`` or ``NODE=false``.
+    """
+    return f"{node_id}={str(value).lower()}"
+
+
 def render_evidence(evidence: Mapping[str, bool]) -> str:
     """Write evidence for a finding's message the way it is typed on the command line.
 
@@ -80,7 +95,7 @@ def render_evidence(evidence: Mapping[str, bool]) -> str:
     Returns:
         ``a=true, b=false``.
     """
-    return ", ".join(f"{node_id}={str(value).lower()}" for node_id, value in evidence.items())
+    return ", ".join(render_item(node_id, value) for node_id, value in evidence.items())
 
 
 def probability_threshold(value: object, name: str) -> float:

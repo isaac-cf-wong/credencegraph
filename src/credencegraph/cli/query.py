@@ -20,7 +20,6 @@ from credencegraph.cli.common import (
     Result,
     check_consistent,
     compile_checked,
-    format_item,
     parse_assignment,
     read_graph,
     require_variables,
@@ -29,6 +28,7 @@ from credencegraph.cli.common import (
 from credencegraph.core.credence import Point
 from credencegraph.core.graph import Graph
 from credencegraph.core.relation import EXCLUSIVE
+from credencegraph.diagnostics.records import render_item
 from credencegraph.inference.elimination import DEFAULT_MAX_FACTOR_SIZE, VariableElimination
 from credencegraph.inference.engine import Query
 from credencegraph.inference.errors import ProblemTooLargeError, ZeroProbabilityError
@@ -187,7 +187,7 @@ def _broken_exclusive(graph: Graph, network: Network, items: list[tuple[str, str
     true = {}
     for flag, node_id, value in items:
         if value:
-            true.setdefault(network.index(node_id), f"{flag} {format_item(node_id, value)}")
+            true.setdefault(network.index(node_id), f"{flag} {render_item(node_id, value)}")
     broken = []
     for relation in graph.relations.values():
         if relation.type != EXCLUSIVE:
@@ -293,7 +293,7 @@ def _impossible(  # noqa: PLR0913, PLR0917 - the command's whole context
     ]
     if not items or _fails(engine, network, target, {}, {}):
         return CliError(ZERO_PROBABILITY, str(error), IMPOSSIBLE_GRAPH_HINT)
-    labels = [f"{flag} {format_item(node_id, value)}" for flag, node_id, value in items]
+    labels = [f"{flag} {render_item(node_id, value)}" for flag, node_id, value in items]
 
     def drop_clears(dropped: tuple[int, ...]) -> bool:
         kept = _split([item for i, item in enumerate(items) if i not in dropped])
