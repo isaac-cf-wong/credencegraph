@@ -48,6 +48,7 @@ nav = [
   { "Get Started" = "index.md" },
   { "Command line" = "cli.md" },
   { "Worked example" = "worked-example.md" },
+  { "Reading the diagnostics" = "reading-diagnostics.md" },
   { "API" = [
     { "Overview" = "api/index.md" },
     { "Core" = "api/core/index.md" },

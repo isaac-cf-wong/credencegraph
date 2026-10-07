@@ -32,7 +32,14 @@ answers can be checked by hand.
    leaving it out makes the claim look better supported than it is.
 
 Then `credencegraph check` validates the file and
-`credencegraph diagnose g.json --target CLAIM` reports the weak points.
+`credencegraph diagnose g.json --target CLAIM` reports the weak points. Those
+findings are conditional on the credences in the file: under equal default
+credences a ranking of claims counts their premises, and an overclaim flag is
+the rule rather than a finding. What an encoding shows from its structure alone,
+such as a premise shared by several paths or a source's own caveat entered as
+`refutes`, is the most dependable part: it maps the argument and says what to
+check first. [Reading the diagnostics](reading-diagnostics.md) works through
+this on small graphs, along with how to encode a null result.
 
 ## Which way an observation points
 
