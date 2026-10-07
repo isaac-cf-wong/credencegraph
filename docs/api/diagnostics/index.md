@@ -20,6 +20,10 @@ Every diagnostic returns a list of `Finding` records. A finding has an `id`
 | `single_points_of_failure` | Y with P(T \| do(Y = false)) below a fraction of P(T) (0.1)                       |
 | `value_of_information`     | The mutual information I(T; Y) in bits                                            |
 
+When no parameter T depends on is uncertain, as in a graph of plain numbers,
+every crux is zero; `crux` then returns a single finding `crux:<target>`, with
+no value, that says so instead of ranking the zeros.
+
 `diagnose(graph, target)` runs them all. If a parameter is missing the graph
 cannot be compiled, and the report stops after the structural checks.
 

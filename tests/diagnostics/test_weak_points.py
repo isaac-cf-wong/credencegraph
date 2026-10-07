@@ -124,6 +124,25 @@ def test_crux(network, engine):
 
 
 @pytest.mark.parametrize("engine", ENGINES)
+def test_crux_with_every_parameter_a_point(engine):
+    """Test that a graph of plain numbers gets one finding saying why, not a ranking of zeros.
+
+    Y has base 0.8, T base 0.9, and Y requires T with strength 0.9, so P(T) = 0.9 (0.8 + 0.2 * 0.1)
+    and dP(T)/d base(Y) = 0.9 * 0.9 = 0.81: the target depends on Y, but no parameter is uncertain.
+    """
+    graph = Graph()
+    graph.add_node(Node("Y", base=0.8))
+    graph.add_node(Node("T", base=0.9))
+    graph.add_relation(Relation("YT", "requires", "Y", "T", strength=0.9))
+    network = compile_graph(graph)
+    findings = crux(network, "T", engine=engine)
+    assert [(f.id, f.diagnostic, f.nodes, f.value) for f in findings] == [("crux:T", CRUX, ("T",), None)]
+    assert "crux is undefined" in findings[0].message
+    assert "P('T') depends on is uncertain" in findings[0].message
+    close(by_id(sensitivity(network, "T", engine=engine))["sensitivity:base:Y"].value, 0.81)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
 class TestSinglePointOfFailure:
     """P(T | do(A = 0)) = (1 - r) H and P(T | do(B = 0)) = G t, against P(T) = G H.
 

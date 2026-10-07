@@ -81,7 +81,10 @@ Each finding is a record with an id, the nodes and relations involved, a value
 and a one-line explanation (`finding.to_dict()` is its JSON form). For the graph
 above it reports, among others, that `calibrated` is an assumption with no
 source, ranks `r2` as the crux — the only uncertain input the claim depends on —
-and ranks `signal` as the premise most worth resolving. A node's `stated`
+and ranks `signal` as the premise most worth resolving. Crux needs uncertainty:
+in a graph of plain numbers only, such as this one with `strength=0.8` in place
+of `Beta(8, 2)`, it reports a single finding saying no input is uncertain
+instead of a ranking, and sensitivity is the ranking to read. A node's `stated`
 credence, the confidence its source asserts, is compared with the credence its
 premises deliver in log-odds, and a gap above 2 ln(11/9) ≈ 0.40 is reported as
 an overclaim or underclaim. That value is the infimum of the log-odds gaps
