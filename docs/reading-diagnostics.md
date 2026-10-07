@@ -134,8 +134,9 @@ When a premise would make the null more convincing, such as `lax`, "the
 threshold was low enough that marginal candidates would have passed", it is a
 reason for the claim and enters as `supports`: if it holds, the claim rises, to
 0.9 · (1 − 0.05 · 0.5) = 0.8775; if it fails, the claim keeps 0.95 · 0.9 =
-0.855, what it had without it. A premise that does not bear on the null either
-way is best left out.
+0.855, what it had without it. The 0.8685 the marginal query reports is the
+average of the two over `lax`'s own credence, 0.6 · 0.8775 + 0.4 · 0.855. A
+premise that does not bear on the null either way is best left out.
 
 The test for each premise of a null or upper-limit claim is which way its
 failure moves the claim. A failure that could hide a real signal, such as a
