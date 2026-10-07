@@ -18,6 +18,7 @@ Every diagnostic returns a list of `Finding` records. A finding has an `id`
 | `sensitivity`              | ∂P(T)/∂θ for every parameter θ                                                    |
 | `crux`                     | \|∂P(T)/∂θ\| · sd(θ): T depends on θ _and_ θ is uncertain                         |
 | `single_points_of_failure` | Y with P(T \| do(Y = false)) below a fraction of P(T) (0.1)                       |
+| `failure_impact`           | Every Y ranked by P(T \| do(Y = false)) / P(T), the threshold marking the line    |
 | `value_of_information`     | The mutual information I(T; Y) in bits                                            |
 
 `diagnose(graph, target)` runs them all. If a parameter is missing the graph
@@ -36,6 +37,7 @@ With it:
 | `sensitivity`              | ∂P(T \| E)/∂θ, by the quotient rule below                        |
 | `crux`                     | \|∂P(T \| E)/∂θ\| · sd(θ), sd(θ) of the parameter's own credence |
 | `single_points_of_failure` | Y with P(T \| do(Y = false), E) below a fraction of P(T \| E)    |
+| `failure_impact`           | P(T \| do(Y = false), E) / P(T \| E), over the same candidates   |
 | `value_of_information`     | I(T; Y \| E) in bits, over the unobserved variables Y            |
 
 The target may not be observed, directly or through an equivalent node, since
@@ -89,6 +91,32 @@ probability, not a probability: by default a variable is reported when its
 failure leaves P(T) below a tenth of what it was. An already improbable target
 therefore still has its premises ranked, rather than every premise whose failure
 lowers it reported; a threshold of 1 reports all of those.
+
+**A premise behind one `requires` of strength r crosses the threshold only if r
+\> 1 − threshold.** Suppose the only directed path from Y to T is one `requires`
+relation Y → T of strength r, with no evidence and no `exclusive` constraint.
+P(T = 1 | parents) is Y's necessity gate, 1 − r when Y is false and 1 when it is
+true, times a factor A that does not involve Y. Failing Y leaves T's other
+parents as they were, so P(T | do(Y = false)) = (1 − r) E[A], while P(T) ≤ E[A]
+because the gate is at most 1:
+
+P(T | do(Y = false)) / P(T) ≥ 1 − r.
+
+When Y shares no ancestor with T's other parents the ratio is exactly (1 − r) /
+((1 − r) + r p), with p = P(Y). At the default threshold of 0.1 such a premise
+is never a single point of failure when r ≤ 0.9, however probable it is, so an
+empty list says that no `requires` is stronger than 0.9, not that nothing is
+fatal.
+
+**Failure impact ranks what lies below the line.** `failure_impact` gives, for
+every candidate of `single_points_of_failure`, the ratio P(T | do(Y = false), E)
+/ P(T | E) as its `value`, lowest first, with P(T | E) as `baseline`, P(T | do(Y
+= false), E) as `p_target_if_false` and the threshold in its `details`. The
+threshold does not filter it: `single_point_of_failure` is true exactly for the
+variables `single_points_of_failure` reports. The premises can therefore be
+ranked by how much their failure dents the target without rerunning at another
+threshold. When P(T | E) is zero the ratio is undefined and there are no
+findings.
 
 Parameters are treated as independent, so the most common source of
 overconfidence in a hand-built argument is a missing common cause: two premises

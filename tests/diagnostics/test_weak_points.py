@@ -22,11 +22,13 @@ import pytest
 from credencegraph.core import Beta, Graph, Node, Relation, ValidationError
 from credencegraph.diagnostics import (
     CRUX,
+    FAILURE_IMPACT,
     SENSITIVITY,
     SINGLE_POINT_OF_FAILURE,
     VALUE_OF_INFORMATION,
     crux,
     derivatives,
+    failure_impact,
     sensitivity,
     single_points_of_failure,
     value_of_information,
@@ -321,3 +323,114 @@ def test_unknown_target(network):
     for diagnostic in (sensitivity, crux, single_points_of_failure, value_of_information):
         with pytest.raises(ValidationError, match="no node 'nope'"):
             diagnostic(network, "nope")
+
+
+def one_requires(strength):
+    """Premise y, Beta(8, 2), that t requires with ``strength``; t has base 0.9 and no other parent."""
+    graph = Graph()
+    graph.add_node(Node("y", base=Beta(8, 2)))
+    graph.add_node(Node("t", base=0.9))
+    graph.add_relation(Relation("yt", "requires", "y", "t", strength=strength))
+    return compile_graph(graph)
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+class TestFailureImpact:
+    """P(T | do(Y = 0)) / P(T) for every other variable, lowest first, the threshold marking the line.
+
+    On the two-premise graph the ratios are (1 - r) / G = 0.294 for A and t / H = 0.632 for B. For a
+    premise y with P(y) = p behind one ``requires`` of strength r, P(t | do(y = 0)) = t (1 - r) and
+    P(t) = t ((1 - r) + r p), so the ratio is (1 - r) / ((1 - r) + r p), never below 1 - r.
+    """
+
+    @pytest.mark.parametrize(("strength", "fatal"), [(0.8, False), (0.9, False), (0.95, True), (0.99, True)], ids=str)
+    def test_single_requires_is_ranked_below_the_line(self, engine, strength, fatal):
+        """Test that the premise is ranked at every strength, and is a single point of failure only above 0.9.
+
+        At r = 0.9 the ratio is 0.1 / (0.1 + 0.9 * 0.8) = 0.122, above the default threshold 0.1, so
+        ``single_points_of_failure`` is empty while the ranking still shows the premise and its ratio.
+        """
+        network = one_requires(strength)
+        expected = (1 - strength) / ((1 - strength) + strength * 0.8)
+        assert expected >= 1 - strength
+        assert [f.id for f in single_points_of_failure(network, "t", engine=engine)] == (
+            ["single-point-of-failure:y"] if fatal else []
+        )
+        (finding,) = failure_impact(network, "t", engine=engine)
+        assert finding.id == "failure-impact:y"
+        assert finding.diagnostic == FAILURE_IMPACT
+        assert finding.nodes == ("y",)
+        close(finding.value, expected)
+        close(finding.details["baseline"], 0.9 * ((1 - strength) + strength * 0.8))
+        close(finding.details["p_target_if_false"], 0.9 * (1 - strength))
+        assert finding.details["threshold"] == 0.1
+        assert finding.details["single_point_of_failure"] is fatal
+        assert ("a single point of failure" in finding.message) is fatal
+
+    def test_ranks_every_premise_lowest_first(self, network, engine):
+        """Test the ratios and the order on the two-premise graph, neither below the default line."""
+        findings = failure_impact(network, "T", engine=engine)
+        assert [f.id for f in findings] == ["failure-impact:A", "failure-impact:B"]
+        close(findings[0].value, (1 - r) / G)
+        close(findings[1].value, t / H)
+        close(findings[0].details["p_target_if_false"], (1 - r) * H)
+        close(findings[0].details["baseline"], G * H)
+        assert not any(f.details["single_point_of_failure"] for f in findings)
+        assert "keeps 0.294 of its value, 0.323 to 0.095" in findings[0].message
+
+    @pytest.mark.parametrize("threshold", [0.0, 0.1, 0.294, 0.295, 0.5, 0.632, 0.7, 1.0])
+    def test_marks_exactly_the_single_points_of_failure(self, network, engine, threshold):
+        """Test that the marked entries are the variables ``single_points_of_failure`` reports, in order."""
+        marked = [
+            f.nodes
+            for f in failure_impact(network, "T", threshold=threshold, engine=engine)
+            if f.details["single_point_of_failure"]
+        ]
+        reported = [f.nodes for f in single_points_of_failure(network, "T", threshold=threshold, engine=engine)]
+        assert marked == reported
+        assert len(failure_impact(network, "T", threshold=threshold, engine=engine)) == 2
+
+    def test_mark_uses_the_rounding_rule(self, engine):
+        """Test that a failure to exactly half of P(T) is not marked at 0.5 and is at 0.5001."""
+        graph = Graph()
+        graph.add_node(Node("X", base=0.5))
+        graph.add_node(Node("T", base=0.2))
+        graph.add_relation(Relation("XT", "supports", "X", "T", strength=0.5))
+        network = compile_graph(graph)
+        (at_half,) = failure_impact(network, "T", threshold=0.5, engine=engine)
+        close(at_half.value, 0.5)
+        assert at_half.details["single_point_of_failure"] is False
+        (above,) = failure_impact(network, "T", threshold=0.5001, engine=engine)
+        assert above.details["single_point_of_failure"] is True
+
+    def test_failure_that_raises_the_target_is_last(self, engine):
+        """Test that a refuter's failure, which raises T, ranks after a premise's, with a ratio above 1.
+
+        X (base 0.5) is required by T with strength 1, F (base 0.5) refutes T with strength 0.5, and T
+        has base 0.8: P(T) = 0.5 * 0.8 * 0.75 = 0.3, P(T | do(X = 0)) = 0 and P(T | do(F = 0)) = 0.4.
+        """
+        graph = Graph()
+        graph.add_node(Node("X", base=0.5))
+        graph.add_node(Node("F", base=0.5))
+        graph.add_node(Node("T", base=0.8))
+        graph.add_relation(Relation("XT", "requires", "X", "T", strength=1.0))
+        graph.add_relation(Relation("FT", "refutes", "F", "T", strength=0.5))
+        findings = failure_impact(compile_graph(graph), "T", engine=engine)
+        assert [f.id for f in findings] == ["failure-impact:X", "failure-impact:F"]
+        assert findings[0].value == 0.0
+        close(findings[1].value, 0.4 / 0.3)
+
+    def test_impossible_target_has_no_ranking(self, engine):
+        """Test that with P(T) = 0 the ratio is undefined and nothing is ranked."""
+        graph = Graph()
+        graph.add_node(Node("X", base=0.5))
+        graph.add_node(Node("T", base=0.0))
+        graph.add_relation(Relation("XT", "supports", "X", "T", strength=0.0))
+        assert failure_impact(compile_graph(graph), "T", engine=engine) == []
+
+    def test_bad_threshold_and_target(self, network, engine):
+        """Test that a threshold outside [0, 1], and a target that is not a node, are rejected."""
+        with pytest.raises(ValidationError, match="threshold"):
+            failure_impact(network, "T", threshold=1.5, engine=engine)
+        with pytest.raises(ValidationError, match="no node 'nope'"):
+            failure_impact(network, "nope", engine=engine)

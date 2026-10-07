@@ -304,3 +304,31 @@ class TestDiagnoseGiven:
         )
         output = cli.json("diagnose", path, "--target", "b", "--given", "a=true")
         assert [f["id"] for f in output["findings"]] == ["missing-parameter:base:b", "unanchored:a"]
+
+
+def test_failure_impact_ranks_a_premise_below_the_default_line(cli, tmp_path):
+    """Test that a premise behind one requires of 0.9 is ranked, though it is not a single point of failure.
+
+    y (base 0.8) is required by t with strength 0.9, so failing y keeps
+    0.1 / (0.1 + 0.9 * 0.8) = 0.122 of P(t): above the default threshold 0.1, never below 1 - 0.9.
+    """
+    path = tmp_path / "g.json"
+    dump(
+        graph_with(
+            Node("y", base=0.8),
+            Node("t", base=0.9),
+            relations=(Relation("yt", "requires", "y", "t", strength=0.9),),
+        ),
+        path,
+    )
+    findings = cli.json("diagnose", path, "--target", "t")["findings"]
+    assert not [f for f in findings if f["diagnostic"] == "single-point-of-failure"]
+    (impact,) = [f for f in findings if f["diagnostic"] == "failure-impact"]
+    assert impact["id"] == "failure-impact:y"
+    assert impact["value"] == pytest.approx(0.1 / (0.1 + 0.9 * 0.8), rel=1e-12, abs=0.0)
+    assert impact["details"]["single_point_of_failure"] is False
+    assert impact["details"]["threshold"] == 0.1
+    raised = cli.json("diagnose", path, "--target", "t", "--failure-threshold", "0.2")["findings"]
+    (impact,) = [f for f in raised if f["diagnostic"] == "failure-impact"]
+    assert impact["details"]["single_point_of_failure"] is True
+    assert [f["id"] for f in raised if f["diagnostic"] == "single-point-of-failure"] == ["single-point-of-failure:y"]

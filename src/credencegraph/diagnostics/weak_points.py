@@ -31,6 +31,7 @@ from credencegraph.core.credence import Credence
 from credencegraph.core.errors import ValidationError
 from credencegraph.diagnostics.records import (
     CRUX,
+    FAILURE_IMPACT,
     ROUNDING,
     SENSITIVITY,
     SINGLE_POINT_OF_FAILURE,
@@ -371,6 +372,52 @@ def _others(network: Network, target: str, evidence: Mapping[str, bool]) -> list
     return [(v.name, v.members) for v in network.variables if v.kind == PROPOSITION and v.index not in skipped]
 
 
+def _failures(
+    network: Network, target: str, evidence: Mapping[str, bool] | None, threshold: float, engine: Engine | None
+) -> tuple[Query, float, float, float, list[tuple[str, tuple[str, ...], float]]]:
+    """Fail each other variable in turn, for ``single_points_of_failure`` and ``failure_impact``.
+
+    Args:
+        network: The network.
+        target: The id of the target node.
+        evidence: Node ids and their observed values, or ``None`` for none.
+        threshold: The fraction of ``P(target | evidence)`` below which the target counts as failed.
+        engine: The exact engine, or ``None`` for variable elimination.
+
+    Returns:
+        The query, the threshold, ``P(target | evidence)``, the cutoff a failed probability must fall
+        below to count as a single point of failure, and the name, member node ids and
+        ``P(target | do(Y = false), evidence)`` of each candidate Y, in network order. A variable
+        whose failure the evidence rules out is not a candidate.
+
+    Raises:
+        ValidationError: If ``threshold`` is not in [0, 1], ``target`` or an evidence node is not an
+            inference variable, or the evidence observes the target.
+        ZeroProbabilityError: If the evidence and the ``exclusive`` constraints have probability zero,
+            or the constraints alone do under one of the interventions.
+    """
+    limit = probability_threshold(threshold, "threshold")
+    engine = engine or VariableElimination()
+    query = _observed(network, target, evidence)
+    baseline = engine.query(network, query)
+    # The cutoff is relative, so its rounding slack is too: an absolute one would exceed the cutoff
+    # itself for a target below about 1e-12 and hide even a failure that takes the target to zero.
+    cutoff = limit * baseline * (1.0 - ROUNDING)
+    failures = []
+    for name, members in _others(network, target, query.evidence):
+        failed = network.intervene({name: False})
+        try:
+            value = engine.query(failed, query)
+        except ZeroProbabilityError:
+            if not query.evidence:
+                raise
+            # Raises when the constraints alone are impossible under the failure, as without evidence.
+            engine.query(failed, Query({target: True}))
+            continue
+        failures.append((name, members, value))
+    return query, limit, baseline, cutoff, failures
+
+
 def single_points_of_failure(
     network: Network,
     target: str,
@@ -387,6 +434,22 @@ def single_points_of_failure(
     probability, not a probability, so the same default separates the premises that sink the target
     from those that merely dent it whether the target starts at 0.9 or at 0.01. A threshold of 1
     reports every variable whose failure lowers the target at all; 0 reports none.
+
+    **A premise behind one ``requires`` of strength r is reported only if r > 1 - threshold.** Let
+    the only directed path from Y to T be one ``requires`` relation Y -> T of strength r, with no
+    evidence and no ``exclusive`` constraint. ``P(T = 1 | parents)`` is Y's necessity gate, 1 - r
+    when Y is false and 1 when it is true, times a factor A that does not involve Y. Failing Y leaves
+    the distribution of T's other parents as it was, so ``P(T | do(Y = false)) = (1 - r) E[A]``,
+    while ``P(T) <= E[A]`` because the gate is at most 1. Hence
+
+        P(T | do(Y = false)) / P(T) >= 1 - r,
+
+    and when Y shares no ancestor with T's other parents the ratio is exactly
+    ``(1 - r) / ((1 - r) + r p)`` with ``p = P(Y)``, which tends to 1 - r as p tends to 1. At the
+    default threshold of 0.1 such a premise is never reported when r <= 0.9, however probable it is:
+    an empty list then says that no ``requires`` is stronger than 0.9, not that nothing is fatal.
+    ``failure_impact`` ranks every candidate by the same ratio, so the premises that dent the target
+    most are visible whether or not one crosses the line.
 
     Observed variables are not candidates: the evidence already says whether they hold. Nor is a
     variable whose failure the evidence rules out, where ``P(evidence | do(Y = false))`` is zero:
@@ -414,37 +477,89 @@ def single_points_of_failure(
         ZeroProbabilityError: If the evidence and the ``exclusive`` constraints have probability zero,
             or the constraints alone do under one of the interventions.
     """
-    limit = probability_threshold(threshold, "threshold")
-    engine = engine or VariableElimination()
-    query = _observed(network, target, evidence)
-    baseline = engine.query(network, query)
-    # The cutoff is relative, so its rounding slack is too: an absolute one would exceed the cutoff
-    # itself for a target below about 1e-12 and hide even a failure that takes the target to zero.
-    cutoff = limit * baseline * (1.0 - ROUNDING)
+    query, limit, baseline, cutoff, failures = _failures(network, target, evidence, threshold, engine)
+    findings = [
+        Finding(
+            id=f"{SINGLE_POINT_OF_FAILURE}:{name}",
+            diagnostic=SINGLE_POINT_OF_FAILURE,
+            message=(
+                f"if {name!r} is false, {_probability(target, query.evidence)} falls from {baseline:.3g} to {value:.3g}"
+            ),
+            nodes=members,
+            value=value,
+            details={"baseline": baseline, "threshold": limit},
+        )
+        for name, members, value in failures
+        if value < cutoff
+    ]
+    return sorted(findings, key=lambda finding: finding.value or 0.0)
+
+
+def failure_impact(
+    network: Network,
+    target: str,
+    *,
+    evidence: Mapping[str, bool] | None = None,
+    threshold: float = DEFAULT_FAILURE_THRESHOLD,
+    engine: Engine | None = None,
+) -> list[Finding]:
+    """Rank the other variables Y by ``P(target | do(Y = false), evidence) / P(target | evidence)``.
+
+    The ratio is the fraction of the target's probability that survives the failure of Y, with the
+    intervention of ``single_points_of_failure``: below 1 the failure lowers the target, above 1 it
+    raises it. Every candidate of ``single_points_of_failure`` is ranked, lowest ratio first, and the
+    threshold only marks the line: a finding whose ratio falls below it, under the same rounding
+    rule, is exactly one ``single_points_of_failure`` reports. The ranking therefore orders the
+    premises by failure impact without a second run at another threshold, which matters because a
+    premise behind one ``requires`` of strength r keeps at least ``1 - r`` of the target and crosses
+    the default line only for r > 0.9; see ``single_points_of_failure``.
+
+    Args:
+        network: The network.
+        target: The id of the target node.
+        evidence: Node ids and their observed values; none by default.
+        threshold: The fraction of ``P(target | evidence)`` that marks a single point of failure, as
+            for ``single_points_of_failure``; it does not filter the ranking.
+        engine: The exact engine; variable elimination by default.
+
+    Returns:
+        One finding per candidate, lowest ratio first, ties in network order; its value is the ratio,
+        and its details give ``P(target | evidence)`` as ``baseline``,
+        ``P(target | do(Y = false), evidence)`` as ``p_target_if_false``, the fraction as
+        ``threshold``, and ``single_point_of_failure``, true for a ratio below the threshold. When
+        ``P(target | evidence)`` is zero there is nothing to lose and the ratio is undefined, so
+        there are no findings.
+
+    Raises:
+        ValidationError: If ``threshold`` is not in [0, 1], ``target`` or an evidence node is not an
+            inference variable, or the evidence observes the target.
+        ZeroProbabilityError: If the evidence and the ``exclusive`` constraints have probability zero,
+            or the constraints alone do under one of the interventions.
+    """
+    query, limit, baseline, cutoff, failures = _failures(network, target, evidence, threshold, engine)
+    if baseline <= 0.0:
+        return []
     findings = []
-    for name, members in _others(network, target, query.evidence):
-        failed = network.intervene({name: False})
-        try:
-            value = engine.query(failed, query)
-        except ZeroProbabilityError:
-            if not query.evidence:
-                raise
-            # Raises when the constraints alone are impossible under the failure, as without evidence.
-            engine.query(failed, Query({target: True}))
-            continue
-        if value >= cutoff:
-            continue
+    for name, members, value in failures:
+        ratio = value / baseline
+        fatal = value < cutoff
         findings.append(
             Finding(
-                id=f"{SINGLE_POINT_OF_FAILURE}:{name}",
-                diagnostic=SINGLE_POINT_OF_FAILURE,
+                id=f"{FAILURE_IMPACT}:{name}",
+                diagnostic=FAILURE_IMPACT,
                 message=(
-                    f"if {name!r} is false, {_probability(target, query.evidence)} falls from {baseline:.3g} "
-                    f"to {value:.3g}"
+                    f"if {name!r} is false, {_probability(target, query.evidence)} keeps {ratio:.3g} of its value, "
+                    f"{baseline:.3g} to {value:.3g}"
+                    + (f"; below the threshold {limit:.3g}, a single point of failure" if fatal else "")
                 ),
                 nodes=members,
-                value=value,
-                details={"baseline": baseline, "threshold": limit},
+                value=ratio,
+                details={
+                    "baseline": baseline,
+                    "p_target_if_false": value,
+                    "threshold": limit,
+                    "single_point_of_failure": fatal,
+                },
             )
         )
     return sorted(findings, key=lambda finding: finding.value or 0.0)
