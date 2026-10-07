@@ -24,6 +24,7 @@ from credencegraph.core.credence import Beta, Credence, Point
 from credencegraph.core.errors import CredenceGraphError, CycleError, ValidationError
 from credencegraph.core.graph import Graph
 from credencegraph.core.serialization import credence_to_json, dumps, loads
+from credencegraph.diagnostics.records import render_item
 from credencegraph.diagnostics.structure import missing_parameters
 from credencegraph.inference.errors import ProblemTooLargeError, ZeroProbabilityError
 from credencegraph.semantics.compiler import compile_graph, inference_sets
@@ -479,14 +480,9 @@ def check_consistent(network: Network, evidence: dict[str, bool], interventions:
             merged = "" if other == node_id else f", and {other!r} and {node_id!r} are equivalent"
             raise CliError(
                 INVALID_ARGUMENT,
-                f"--given {format_item(node_id, value)} contradicts --set {format_item(other, setting)}{merged}",
+                f"--given {render_item(node_id, value)} contradicts --set {render_item(other, setting)}{merged}",
                 "a proposition fixed by --set holds that value; drop the --given, or give it the --set value",
             )
-
-
-def format_item(node_id: str, value: bool) -> str:
-    """Write an assignment the way it is typed: ``NODE=true``."""
-    return f"{node_id}={str(value).lower()}"
 
 
 def require_nodes(graph: Graph, node_ids: Iterable[str], role: str) -> None:

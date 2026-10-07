@@ -74,6 +74,12 @@ is taken given those values, E:
 - **Single points of failure** compare P(T | do(Y = false), E) with P(T | E).
   Observed variables are not candidates, nor is a variable whose failure the
   evidence rules out, P(E | do(Y = false)) = 0.
+- **Failure impact** ranks the same candidates by P(T | do(Y = false), E) / P(T
+  | E), lowest first, whatever the threshold; `details.single_point_of_failure`
+  marks the ones below `--failure-threshold`. Without evidence, a premise whose
+  only path to T is one `requires` of strength r keeps at least 1 − r of P(T),
+  so it falls below the threshold only if r > 1 − threshold: never at the
+  default 0.1 when r ≤ 0.9.
 - **Value of information** is I(T; Y | E), over the unobserved variables Y.
 
 The target may not be observed, directly or through an equivalent node: its
@@ -96,8 +102,9 @@ observed is still an error. `--targets` accepts no value but `stated`.
 
 The graph-wide checks (missing parameters, unanchored variables, overclaims and
 underclaims) run once, whatever the number of targets, and each target's
-sensitivity, crux, single points of failure and value of information follow, in
-the order of the targets. With no target only the graph-wide checks run.
+sensitivity, crux, single points of failure, failure impact and value of
+information follow, in the order of the targets. With no target only the
+graph-wide checks run.
 
 With `--json`, `credencegraph diagnose g.json --target signal --targets stated`
 on the graph above prints, with one of its findings shown,

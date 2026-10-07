@@ -16,6 +16,7 @@ from credencegraph.diagnostics.weak_points import (
     DEFAULT_FAILURE_THRESHOLD,
     crux_findings,
     derivatives,
+    failure_impact,
     sensitivity_findings,
     single_points_of_failure,
     value_of_information,
@@ -32,9 +33,9 @@ class Report:
     Attributes:
         findings: The graph-wide findings: missing parameters, unanchored variables, overclaims and
             underclaims. They do not depend on a target and appear once.
-        weak_points: Each target's sensitivity, crux, single points of failure and value of
-            information, by target id in the order the targets were given. A finding id is unique
-            within one target's list; the same id, such as ``crux:strength:r1``, can recur for
+        weak_points: Each target's sensitivity, crux, single points of failure, failure impact and
+            value of information, by target id in the order the targets were given. A finding id is
+            unique within one target's list; the same id, such as ``crux:strength:r1``, can recur for
             another target.
     """
 
@@ -85,13 +86,13 @@ def diagnose(  # noqa: PLR0913 - the options after the target are keyword-only
     The structural checks (missing parameters, unanchored variables) always run. If a parameter is
     missing the graph cannot be compiled, and the report stops there. Otherwise the stated credences
     are compared with the computed ones, and, when a target is given, its sensitivity, crux,
-    single points of failure and value of information follow. ``diagnose_many`` does the same for
-    several targets, running the graph-wide checks once.
+    single points of failure, failure impact and value of information follow. ``diagnose_many``
+    does the same for several targets, running the graph-wide checks once.
 
     With evidence every inference diagnostic is taken given it: the computed credences are
     ``P(X | evidence)``, the sensitivities and cruxes are derivatives of ``P(target | evidence)``,
-    the single points of failure compare ``P(target | do(Y = false), evidence)`` with
-    ``P(target | evidence)``, and the value of information is ``I(target; Y | evidence)``. Observed
+    the single points of failure and the failure impact compare ``P(target | do(Y = false), evidence)``
+    with ``P(target | evidence)``, and the value of information is ``I(target; Y | evidence)``. Observed
     variables are left out of the comparisons and rankings over nodes, and the target may not be
     observed. Without evidence the report is the one for the graph before anything is observed.
 
@@ -101,8 +102,10 @@ def diagnose(  # noqa: PLR0913 - the options after the target are keyword-only
         evidence: Node ids and their observed values; none by default.
         claim_threshold: The threshold passed to ``claims``, a gap in natural log-odds; the default,
             ``2 ln(11 / 9)``, is a convention of this package.
-        failure_threshold: The threshold passed to ``single_points_of_failure``, a fraction of the
-            target's own probability; the default, 0.1, is a convention of this package.
+        failure_threshold: The threshold passed to ``single_points_of_failure``, and marked in the
+            ``failure_impact`` ranking, a fraction of the target's own probability; the default, 0.1,
+            is a convention of this package. A premise behind one ``requires`` of strength r crosses
+            it only if r > 1 - threshold.
         engine: The exact engine; variable elimination by default.
 
     Returns:
@@ -184,5 +187,6 @@ def diagnose_many(  # noqa: PLR0913 - the options after the targets are keyword-
         found.extend(
             single_points_of_failure(network, target, evidence=evidence, threshold=failure_threshold, engine=engine)
         )
+        found.extend(failure_impact(network, target, evidence=evidence, threshold=failure_threshold, engine=engine))
         found.extend(value_of_information(network, target, evidence=evidence, engine=engine))
     return Report(findings, weak_points)

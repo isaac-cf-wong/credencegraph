@@ -42,6 +42,7 @@ def test_with_target_groups_every_diagnostic():
         *["sensitivity"] * 5,
         *["crux"] * 5,
         "single-point-of-failure",
+        *["failure-impact"] * 2,
         *["value-of-information"] * 2,
     ]
     assert len({f.id for f in findings}) == len(findings)
@@ -144,6 +145,7 @@ def test_messages_stay_on_one_line_whatever_the_ids():
         "sensitivity",
         "crux",
         "single-point-of-failure",
+        "failure-impact",
         "value-of-information",
     }
     for finding in findings:

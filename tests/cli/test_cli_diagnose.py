@@ -26,6 +26,19 @@ class TestDiagnose:
         assert "overclaim:claim" in ids
         assert "crux:strength:r2" in ids
 
+    def test_every_parameter_a_point(self, cli, tmp_path):
+        """Test that a graph of plain numbers gets one crux record saying why, not a ranking of zeros."""
+        graph = Graph()
+        graph.add_node(Node("y", base=0.8))
+        graph.add_node(Node("t", base=0.9))
+        graph.add_relation(Relation("a", "requires", "y", "t", strength=0.9))
+        path = tmp_path / "points.json"
+        dump(graph, path)
+        output = cli.json("diagnose", path, "--target", "t")
+        cruxes = [finding for finding in output["findings"] if finding["diagnostic"] == "crux"]
+        assert [(finding["id"], finding["value"]) for finding in cruxes] == [("crux:t", None)]
+        assert cruxes[0]["message"].startswith("crux is undefined")
+
     def test_without_target(self, cli, graph_file):
         """Test that without a target only the graph-wide checks run."""
         output = cli.json("diagnose", graph_file)
@@ -273,6 +286,14 @@ class TestDiagnoseGiven:
         assert error["code"] == "invalid-argument"
         assert "target 'H' is fixed" in error["message"]
 
+    def test_evidence_is_written_as_typed(self, cli, path):
+        """Test that a finding's message and a command-line error write evidence exactly as it was typed."""
+        typed = "o1=false"
+        findings = {f["id"]: f for f in cli.json("diagnose", path, "--given", typed)["findings"]}
+        assert f" given {typed}: " in findings["overclaim:H"]["message"]
+        error = cli.error("query", path, "intervene", "H", "--given", typed, "--set", "o1=true")
+        assert error["message"] == f"--given {typed} contradicts --set o1=true"
+
     def test_impossible_evidence_points_at_given(self, cli, tmp_path):
         """Test that evidence the graph rules out is a zero-probability error naming --given."""
         path = tmp_path / "g.json"
@@ -304,6 +325,34 @@ class TestDiagnoseGiven:
         )
         output = cli.json("diagnose", path, "--target", "b", "--given", "a=true")
         assert [f["id"] for f in output["findings"]] == ["missing-parameter:base:b", "unanchored:a"]
+
+
+def test_failure_impact_ranks_a_premise_below_the_default_line(cli, tmp_path):
+    """Test that a premise behind one requires of 0.9 is ranked, though it is not a single point of failure.
+
+    y (base 0.8) is required by t with strength 0.9, so failing y keeps
+    0.1 / (0.1 + 0.9 * 0.8) = 0.122 of P(t): above the default threshold 0.1, never below 1 - 0.9.
+    """
+    path = tmp_path / "g.json"
+    dump(
+        graph_with(
+            Node("y", base=0.8),
+            Node("t", base=0.9),
+            relations=(Relation("yt", "requires", "y", "t", strength=0.9),),
+        ),
+        path,
+    )
+    findings = cli.json("diagnose", path, "--target", "t")["findings"]
+    assert not [f for f in findings if f["diagnostic"] == "single-point-of-failure"]
+    (impact,) = [f for f in findings if f["diagnostic"] == "failure-impact"]
+    assert impact["id"] == "failure-impact:y"
+    assert impact["value"] == pytest.approx(0.1 / (0.1 + 0.9 * 0.8), rel=1e-12, abs=0.0)
+    assert impact["details"]["single_point_of_failure"] is False
+    assert impact["details"]["threshold"] == 0.1
+    raised = cli.json("diagnose", path, "--target", "t", "--failure-threshold", "0.2")["findings"]
+    (impact,) = [f for f in raised if f["diagnostic"] == "failure-impact"]
+    assert impact["details"]["single_point_of_failure"] is True
+    assert [f["id"] for f in raised if f["diagnostic"] == "single-point-of-failure"] == ["single-point-of-failure:y"]
 
 
 def claims_graph() -> Graph:
@@ -350,6 +399,7 @@ class TestDiagnoseTargets:
         ids = [f["id"] for f in output["findings"]]
         assert ids.count("overclaim:A") == 1
         assert ids.count("crux:base:P") == 2
+        assert ids.count("failure-impact:P") == 2
 
     def test_targets_stated(self, cli, path):
         """Test that --targets stated picks the stated inference variables, after any --target nodes."""
