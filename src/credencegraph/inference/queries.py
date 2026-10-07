@@ -128,7 +128,9 @@ def marginal(  # noqa: PLR0913 - the options after the query itself are keyword-
         node: A node id.
         value: The value asked about.
         engine: The inference engine; variable elimination by default.
-        draws: The number of parameter draws behind the band; 0 skips the band.
+        draws: The number of parameter draws behind the band. Each draw answers the query exactly once
+            more, so the default band costs ``DEFAULT_DRAWS`` exact inferences; 0 skips the band and
+            gives the point answer alone.
         rng: A random generator, or a seed for one, for the draws; ``None`` draws fresh entropy.
 
     Returns:
@@ -151,7 +153,9 @@ def joint(
         network: The network.
         assignment: Node ids and values, or an iterable of node ids that are all asked to be true.
         engine: The inference engine; variable elimination by default.
-        draws: The number of parameter draws behind the band; 0 skips the band.
+        draws: The number of parameter draws behind the band. Each draw answers the query exactly once
+            more, so the default band costs ``DEFAULT_DRAWS`` exact inferences; 0 skips the band and
+            gives the point answer alone.
         rng: A random generator, or a seed for one, for the draws; ``None`` draws fresh entropy.
 
     Returns:
@@ -179,7 +183,9 @@ def conditional(  # noqa: PLR0913 - the options after the query itself are keywo
         target: A node id, asked to be true, or an assignment.
         given: The observed values.
         engine: The inference engine; variable elimination by default.
-        draws: The number of parameter draws behind the band; 0 skips the band.
+        draws: The number of parameter draws behind the band. Each draw answers the query exactly once
+            more, so the default band costs ``DEFAULT_DRAWS`` exact inferences; 0 skips the band and
+            gives the point answer alone.
         rng: A random generator, or a seed for one, for the draws; ``None`` draws fresh entropy.
 
     Returns:

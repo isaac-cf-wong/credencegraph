@@ -67,6 +67,8 @@ intervening on calibration asks what the claim rests on without that premise.
 The point answer uses the credence means; the band shows how far the answer
 moves when the uncertain parameters are drawn from their credences, and is
 omitted when every parameter is a plain number.
+The band costs one exact inference per draw, 1000 by default; pass `draws=0`
+when only the point answer is wanted.
 
 ## Diagnostics
 

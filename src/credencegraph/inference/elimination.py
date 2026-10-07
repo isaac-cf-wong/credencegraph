@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
+from functools import lru_cache
 
 import numpy as np
 
@@ -11,6 +12,11 @@ from credencegraph.inference.errors import ProblemTooLargeError
 from credencegraph.semantics.network import Network
 
 DEFAULT_MAX_FACTOR_SIZE = 2**22
+
+# Elimination orders kept for reuse, keyed by the scopes after evidence is applied. The scopes of a
+# network do not depend on its parameter values, so the draws of a band and the parameter overrides
+# of a diagnostic all share one entry.
+_ORDER_CACHE_SIZE = 256
 
 # One factor: its variable indices and a table with one length-2 axis per variable.
 _Factor = tuple[tuple[int, ...], np.ndarray]
@@ -65,6 +71,19 @@ def min_fill_order(scopes: Iterable[Iterable[int]]) -> list[int]:
     return order
 
 
+@lru_cache(maxsize=_ORDER_CACHE_SIZE)
+def _order(scopes: tuple[tuple[int, ...], ...]) -> tuple[int, ...]:
+    """Return the min-fill order of the given scopes, computed once per distinct scopes.
+
+    Args:
+        scopes: The scopes of the factors after the assignment is applied, in factor order.
+
+    Returns:
+        The order ``min_fill_order`` gives for these scopes.
+    """
+    return tuple(min_fill_order(scopes))
+
+
 def _eliminate(factors: Sequence[_Factor], variable: int) -> tuple[list[_Factor], _Factor]:
     """Multiply the factors that mention ``variable`` and sum it out.
 
@@ -90,6 +109,10 @@ def _eliminate(factors: Sequence[_Factor], variable: int) -> tuple[list[_Factor]
 
 class VariableElimination(Engine):
     """Exact inference by variable elimination with a min-fill order.
+
+    The order depends only on the factor scopes once the assignment is applied, so it is computed
+    once for each distinct set of scopes and reused by later queries, including those on networks
+    that differ only in their parameter values.
 
     Before any table is built, the engine works out the scope of every intermediate factor the
     order produces. If the largest would hold more than ``max_factor_size`` entries, the query fails
@@ -118,7 +141,7 @@ class VariableElimination(Engine):
             ProblemTooLargeError: If an intermediate factor would exceed ``max_factor_size`` entries.
         """
         factors = [_reduce(factor.scope, factor.table, assignment) for factor in network.factors]
-        order = min_fill_order(scope for scope, _ in factors)
+        order = _order(tuple(scope for scope, _ in factors))
         self._check_size(factors, order)
         for variable in order:
             factors, new = _eliminate(factors, variable)
