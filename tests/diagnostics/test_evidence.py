@@ -32,6 +32,7 @@ from credencegraph.diagnostics import (
     crux,
     derivatives,
     diagnose,
+    failure_impact,
     sensitivity,
     single_points_of_failure,
     value_of_information,
@@ -333,6 +334,7 @@ class TestReport:
             *sensitivity(network, "H", evidence=evidence),
             *crux(network, "H", evidence=evidence),
             *single_points_of_failure(network, "H", evidence=evidence, threshold=1.0),
+            *failure_impact(network, "H", evidence=evidence, threshold=1.0),
             *value_of_information(network, "H", evidence=evidence),
         ]
         assert [f for f in findings if f.diagnostic != "unanchored"] == expected

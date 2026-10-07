@@ -144,7 +144,11 @@ def diagnose_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to ea
     failure_threshold: Annotated[
         float,
         typer.Option(
-            help="Report a premise whose failure leaves the target below this fraction of its own probability."
+            help=(
+                "Report a premise whose failure leaves the target below this fraction of its own probability; "
+                "every premise is ranked by that fraction, and this marks the line. A premise behind one requires "
+                "of strength r crosses it only if r > 1 - threshold."
+            )
         ),
     ] = DEFAULT_FAILURE_THRESHOLD,
     max_factor_size: Annotated[
@@ -155,8 +159,8 @@ def diagnose_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to ea
     """Report the weak points of a graph file and, with --target, of one of its nodes.
 
     With --given, every inference diagnostic is taken given the evidence: stated credences are
-    compared with P(X | evidence), and the target's sensitivity, crux, single points of failure and
-    value of information are those of P(target | evidence).
+    compared with P(X | evidence), and the target's sensitivity, crux, single points of failure,
+    failure impact and value of information are those of P(target | evidence).
     """
 
     def action() -> Result:

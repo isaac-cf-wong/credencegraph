@@ -17,6 +17,7 @@ UNDERCLAIM = "underclaim"
 SENSITIVITY = "sensitivity"
 CRUX = "crux"
 SINGLE_POINT_OF_FAILURE = "single-point-of-failure"
+FAILURE_IMPACT = "failure-impact"
 VALUE_OF_INFORMATION = "value-of-information"
 
 # Probabilities within this distance of a threshold count as equal to it. A value that is exactly
