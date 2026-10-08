@@ -8,8 +8,8 @@ import pytest
 from _cli import example_graph
 
 import credencegraph
-from credencegraph.core import Graph, Node, Relation, ValidationError, dump
-from credencegraph.diagnostics import diagnose
+from credencegraph.core import Beta, Graph, Node, Relation, ValidationError, dump
+from credencegraph.diagnostics import diagnose, diagnose_many
 from credencegraph.inference import VariableElimination
 
 
@@ -19,8 +19,8 @@ class TestDiagnose:
     def test_with_target(self, cli, graph_file):
         """Test that the findings are exactly the library's, in its order."""
         output = cli.json("diagnose", graph_file, "--target", "claim")
-        expected = [finding.to_dict() for finding in diagnose(example_graph(), "claim")]
-        assert output == {"command": "diagnose", "path": str(graph_file), "target": "claim", "findings": expected}
+        expected = diagnose_many(example_graph(), ["claim"]).to_dicts()
+        assert output == {"command": "diagnose", "path": str(graph_file), "targets": ["claim"], "findings": expected}
         ids = [finding["id"] for finding in output["findings"]]
         assert "unanchored:calibrated" in ids
         assert "overclaim:claim" in ids
@@ -42,7 +42,7 @@ class TestDiagnose:
     def test_without_target(self, cli, graph_file):
         """Test that without a target only the graph-wide checks run."""
         output = cli.json("diagnose", graph_file)
-        assert output["target"] is None
+        assert output["targets"] == []
         assert [finding["id"] for finding in output["findings"]] == ["unanchored:calibrated", "overclaim:claim"]
 
     def test_thresholds_are_passed_on(self, cli, graph_file):
@@ -50,8 +50,8 @@ class TestDiagnose:
         output = cli.json(
             "diagnose", graph_file, "--target", "claim", "--claim-threshold", "2", "--failure-threshold", "0.2"
         )
-        expected = diagnose(example_graph(), "claim", claim_threshold=2.0, failure_threshold=0.2)
-        assert output["findings"] == [finding.to_dict() for finding in expected]
+        expected = diagnose_many(example_graph(), ["claim"], claim_threshold=2.0, failure_threshold=0.2)
+        assert output["findings"] == expected.to_dicts()
         assert "overclaim:claim" not in [finding["id"] for finding in output["findings"]]
 
     def test_unknown_target(self, cli, graph_file):
@@ -96,8 +96,8 @@ class TestDiagnose:
         assert error["details"] == {"required": 16, "limit": 8}
         assert "raise it with --max-factor-size, to at least 16" in error["hint"]
         output = cli.json("diagnose", path, "--target", "child", "--max-factor-size", "16")
-        expected = diagnose(graph, "child", engine=VariableElimination(16))
-        assert output["findings"] == [finding.to_dict() for finding in expected]
+        expected = diagnose_many(graph, ["child"], engine=VariableElimination(16))
+        assert output["findings"] == expected.to_dicts()
 
     def test_missing_file(self, cli, tmp_path):
         """Test that a missing graph file is reported."""
@@ -205,7 +205,7 @@ def test_unanticipated_validation_error(cli, graph_file, mocker):
     The library is stubbed here because every validation error a command can meet is checked, and
     restated, before the library is called; this pins only what the fallback reports.
     """
-    mocker.patch("credencegraph.cli.diagnose.diagnose", side_effect=ValidationError("bad value"))
+    mocker.patch("credencegraph.cli.diagnose.diagnose_many", side_effect=ValidationError("bad value"))
     error = cli.error("diagnose", graph_file, "--target", "claim")
     assert (error["code"], error["message"], error["details"]) == ("invalid-argument", "bad value", {})
     assert error["hint"] == "check the arguments against 'credencegraph diagnose --help'"
@@ -240,21 +240,21 @@ class TestDiagnoseGiven:
         """Test that the findings are the library's under the same evidence, and the evidence is echoed."""
         output = cli.json("diagnose", path, "--target", "H", "--given", "o1=true", "--given", "o2=false")
         evidence = {"o1": True, "o2": False}
-        expected = [finding.to_dict() for finding in diagnose(observed_graph(), "H", evidence=evidence)]
+        expected = diagnose_many(observed_graph(), ["H"], evidence=evidence).to_dicts()
         assert output == {
             "command": "diagnose",
             "path": str(path),
-            "target": "H",
+            "targets": ["H"],
             "given": evidence,
             "findings": expected,
         }
-        assert expected != [finding.to_dict() for finding in diagnose(observed_graph(), "H")]
+        assert expected != diagnose_many(observed_graph(), ["H"]).to_dicts()
 
     def test_without_given_is_unchanged(self, cli, path):
         """Test that without --given the response has no ``given`` key and the unconditioned findings."""
         output = cli.json("diagnose", path, "--target", "H")
-        assert list(output) == ["command", "path", "target", "findings"]
-        assert output["findings"] == [finding.to_dict() for finding in diagnose(observed_graph(), "H")]
+        assert list(output) == ["command", "path", "targets", "findings"]
+        assert output["findings"] == diagnose_many(observed_graph(), ["H"]).to_dicts()
 
     def test_given_without_target(self, cli, path):
         """Test that the graph-wide checks take the evidence too: the posterior settles the overclaim."""
@@ -353,3 +353,77 @@ def test_failure_impact_ranks_a_premise_below_the_default_line(cli, tmp_path):
     (impact,) = [f for f in raised if f["diagnostic"] == "failure-impact"]
     assert impact["details"]["single_point_of_failure"] is True
     assert [f["id"] for f in raised if f["diagnostic"] == "single-point-of-failure"] == ["single-point-of-failure:y"]
+
+
+def claims_graph() -> Graph:
+    """Two stated claims A and B resting on one premise P, a stated observation O merged with O2, and a stated note N.
+
+    N has no base and no inferential relation, so it takes no part in inference.
+    """
+    return graph_with(
+        Node("P", base=Beta(6, 4)),
+        Node("A", base=0.3, stated=0.9),
+        Node("B", base=0.2, stated=0.5),
+        Node("O", base=0.4),
+        Node("O2", stated=0.4),
+        Node("N", kind="note", stated=0.7),
+        relations=(
+            Relation("PA", "requires", "P", "A", strength=0.8),
+            Relation("PB", "supports", "P", "B", strength=0.6),
+            Relation("same", "equivalent", "O", "O2"),
+        ),
+    )
+
+
+class TestDiagnoseTargets:
+    """``diagnose`` with several targets: the graph-wide checks once, then each target's weak points."""
+
+    @pytest.fixture
+    def path(self, tmp_path):
+        """Write the claims graph."""
+        path = tmp_path / "claims.json"
+        dump(claims_graph(), path)
+        return path
+
+    def test_repeated_target(self, cli, path):
+        """Test that each finding names its target, and the graph-wide findings appear once."""
+        output = cli.json("diagnose", path, "--target", "A", "--target", "B", "--target", "A")
+        assert output["targets"] == ["A", "B"]
+        assert output["findings"] == diagnose_many(claims_graph(), ["A", "B"]).to_dicts()
+        graph_wide = [f.to_dict() for f in diagnose(claims_graph())]
+        assert [{**f, "target": None} for f in graph_wide] == [f for f in output["findings"] if f["target"] is None]
+        for target in ("A", "B"):
+            single = [f.to_dict() for f in diagnose(claims_graph(), target)][len(graph_wide) :]
+            assert single
+            assert [{**f, "target": target} for f in single] == [f for f in output["findings"] if f["target"] == target]
+        ids = [f["id"] for f in output["findings"]]
+        assert ids.count("overclaim:A") == 1
+        assert ids.count("crux:base:P") == 2
+        assert ids.count("failure-impact:P") == 2
+
+    def test_targets_stated(self, cli, path):
+        """Test that --targets stated picks the stated inference variables, after any --target nodes."""
+        assert cli.json("diagnose", path, "--targets", "stated")["targets"] == ["A", "B", "O2"]
+        output = cli.json("diagnose", path, "--target", "P", "--target", "B", "--targets", "stated")
+        assert output["targets"] == ["P", "B", "A", "O2"]
+        assert output["findings"] == diagnose_many(claims_graph(), ["P", "B", "A", "O2"]).to_dicts()
+
+    def test_targets_stated_skips_the_observed(self, cli, path):
+        """Test that a stated node observed through an equivalent node is not a target, as it is not a claim."""
+        output = cli.json("diagnose", path, "--targets", "stated", "--given", "O=true")
+        assert output["targets"] == ["A", "B"]
+        evidence = {"O": True}
+        assert output["findings"] == diagnose_many(claims_graph(), ["A", "B"], evidence=evidence).to_dicts()
+
+    def test_targets_other_than_stated(self, cli, path):
+        """Test that --targets accepts only ``stated``."""
+        error = cli.error("diagnose", path, "--targets", "all")
+        assert error["code"] == "invalid-argument"
+        assert "--targets must be 'stated'" in error["message"]
+
+    def test_text_output(self, cli, path):
+        """Test that the text form has one line per finding, for every target."""
+        result = cli.run("diagnose", path, "--target", "A", "--target", "B")
+        assert result.exit_code == 0
+        report = diagnose_many(claims_graph(), ["A", "B"])
+        assert result.stdout.splitlines() == [f"{f.id}: {f.message}" for f in report.all_findings()]

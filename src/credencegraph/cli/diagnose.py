@@ -1,4 +1,4 @@
-"""The ``diagnose`` and ``check`` commands: weak points of a target, and whether a graph file is usable."""
+"""The ``diagnose`` and ``check`` commands: weak points of targets, and whether a graph file is usable."""
 
 from __future__ import annotations
 
@@ -24,15 +24,16 @@ from credencegraph.cli.common import (
     respond,
     translate,
 )
+from credencegraph.core.graph import Graph
 from credencegraph.diagnostics.claims import DEFAULT_CLAIM_THRESHOLD
 from credencegraph.diagnostics.records import Finding
-from credencegraph.diagnostics.report import diagnose
+from credencegraph.diagnostics.report import diagnose_many
 from credencegraph.diagnostics.structure import missing_parameters, unanchored
 from credencegraph.diagnostics.weak_points import DEFAULT_FAILURE_THRESHOLD
 from credencegraph.inference.elimination import DEFAULT_MAX_FACTOR_SIZE, VariableElimination
 from credencegraph.inference.engine import Query
 from credencegraph.inference.errors import ProblemTooLargeError, ZeroProbabilityError
-from credencegraph.semantics.compiler import compile_graph
+from credencegraph.semantics.compiler import compile_graph, inference_sets
 from credencegraph.semantics.errors import CompileError
 from credencegraph.semantics.network import Network
 
@@ -93,6 +94,47 @@ def _log_odds_threshold(value: float, option: str) -> float:
     return value
 
 
+def _targets(graph: Graph, explicit: list[str], selection: str | None, evidence: dict[str, bool]) -> list[str]:
+    """Resolve ``--target`` and ``--targets`` to the nodes to diagnose.
+
+    Args:
+        graph: The graph.
+        explicit: The ``--target`` values, in the order given.
+        selection: The ``--targets`` value, if any; only ``stated`` is accepted.
+        evidence: The ``--given`` values.
+
+    Returns:
+        The ``--target`` nodes, then, for ``--targets stated``, every node with a ``stated``
+        credence in the graph's order, without repeats. A stated node that takes no part in
+        inference, or is observed directly or through an equivalent node, is left out, as the claim
+        check leaves it out: it has no weak points to report.
+
+    Raises:
+        CliError: If ``--targets`` is not ``stated``, or a ``--target`` node is not an inference variable.
+    """
+    require_variables(graph, explicit, "--target")
+    if selection is None:
+        return list(dict.fromkeys(explicit))
+    if selection != "stated":
+        raise CliError(
+            INVALID_ARGUMENT,
+            f"--targets must be 'stated', got {selection!r}",
+            "pass --targets stated for every node with a stated credence, or name nodes with --target",
+        )
+    observed: set[str] = set()
+    variables: set[str] = set()
+    for members in inference_sets(graph).values():
+        variables.update(members)
+        if any(member in evidence for member in members):
+            observed.update(members)
+    stated = [
+        node_id
+        for node_id, node in graph.nodes.items()
+        if node.stated is not None and node_id in variables and node_id not in observed
+    ]
+    return list(dict.fromkeys([*explicit, *stated]))
+
+
 def _check_evidence(engine: VariableElimination, network: Network, evidence: dict[str, bool]) -> None:
     """Refuse evidence that the graph gives probability zero, naming the cause.
 
@@ -125,8 +167,18 @@ def _check_evidence(engine: VariableElimination, network: Network, evidence: dic
 def diagnose_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to each option
     path: GraphPath,
     target: Annotated[
+        list[str] | None,
+        typer.Option(
+            help="A node whose weak points are wanted; repeat for several. Without it, or --targets, only the graph-wide checks run.",
+            show_default=False,
+        ),
+    ] = None,
+    targets: Annotated[
         str | None,
-        typer.Option(help="The node whose weak points are wanted; without it only the graph-wide checks run."),
+        typer.Option(
+            help="'stated' diagnoses every node with a stated credence, after any --target nodes.",
+            show_default=False,
+        ),
     ] = None,
     given: Annotated[
         list[str] | None,
@@ -156,10 +208,13 @@ def diagnose_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to ea
     ] = DEFAULT_MAX_FACTOR_SIZE,
     as_json: JsonOption = False,
 ) -> None:
-    """Report the weak points of a graph file and, with --target, of one of its nodes.
+    """Report the weak points of a graph file and, with --target or --targets, of some of its nodes.
+
+    The graph-wide checks run once; each target's weak points follow, and in --json every finding
+    names its target, null for a graph-wide one.
 
     With --given, every inference diagnostic is taken given the evidence: stated credences are
-    compared with P(X | evidence), and the target's sensitivity, crux, single points of failure,
+    compared with P(X | evidence), and each target's sensitivity, crux, single points of failure,
     failure impact and value of information are those of P(target | evidence).
     """
 
@@ -174,8 +229,7 @@ def diagnose_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to ea
                 f"the default is {DEFAULT_MAX_FACTOR_SIZE} table entries",
             )
         graph = read_graph(path)
-        if target is not None:
-            require_variables(graph, (target,), "--target")
+        chosen = _targets(graph, target or [], targets, evidence)
         require_variables(graph, evidence, "--given")
         engine = VariableElimination(max_factor_size)
         try:
@@ -184,9 +238,9 @@ def diagnose_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to ea
                 network = compile_checked(graph)
                 check_consistent(network, evidence, {})
                 _check_evidence(engine, network, evidence)
-            findings = diagnose(
+            report = diagnose_many(
                 graph,
-                target,
+                chosen,
                 evidence=evidence,
                 claim_threshold=claims_at,
                 failure_threshold=failures_at,
@@ -203,9 +257,9 @@ def diagnose_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to ea
                 {"required": error.required, "limit": error.limit},
             ) from None
         # Without --given the response is exactly the one for the graph before anything is observed.
-        payload = {"path": str(path), "target": target, **({"given": evidence} if evidence else {})}
-        payload["findings"] = [finding.to_dict() for finding in findings]
-        return Result(payload, _lines(findings) or ["no findings"])
+        payload = {"path": str(path), "targets": chosen, **({"given": evidence} if evidence else {})}
+        payload["findings"] = report.to_dicts()
+        return Result(payload, _lines(report.all_findings()) or ["no findings"])
 
     respond("diagnose", as_json, action)
 

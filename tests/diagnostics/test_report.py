@@ -7,7 +7,7 @@ import json
 import pytest
 
 from credencegraph.core import Beta, Graph, Node, Relation, SourceAnchor, ValidationError
-from credencegraph.diagnostics import Finding, diagnose
+from credencegraph.diagnostics import Finding, Report, diagnose, diagnose_many
 
 ANCHOR = SourceAnchor("doi:10.0000/example")
 
@@ -150,3 +150,49 @@ def test_messages_stay_on_one_line_whatever_the_ids():
     }
     for finding in findings:
         assert len(finding.message.splitlines()) == 1, finding.message
+
+
+def test_diagnose_many_runs_the_graph_wide_checks_once():
+    """Test that several targets share one set of graph-wide findings and each get ``diagnose``'s weak points."""
+    graph = argument()
+    report = diagnose_many(graph, ["T", "P", "T"], failure_threshold=0.5)
+    graph_wide = diagnose(graph)
+    assert list(report.findings) == graph_wide
+    assert list(report.weak_points) == ["T", "P"]
+    for target in ("T", "P"):
+        assert list(report.weak_points[target]) == diagnose(graph, target, failure_threshold=0.5)[len(graph_wide) :]
+    ids = [f.id for f in report.all_findings()]
+    assert ids.count("overclaim:T") == 1
+    assert ids.count("sensitivity:base:P") == 2
+
+
+def test_diagnose_many_names_the_target_of_each_record():
+    """Test that the JSON records carry ``None`` for a graph-wide finding and the target for a weak point."""
+    report = diagnose_many(argument(), ["T", "P"])
+    records = report.to_dicts()
+    assert [record["target"] for record in records] == [
+        *[None] * len(report.findings),
+        *["T"] * len(report.weak_points["T"]),
+        *["P"] * len(report.weak_points["P"]),
+    ]
+    assert [{k: v for k, v in record.items() if k != "target"} for record in records] == [
+        finding.to_dict() for finding in report.all_findings()
+    ]
+    assert json.loads(json.dumps(records, allow_nan=False)) == records
+
+
+def test_diagnose_many_without_targets_or_parameters():
+    """Test no targets, and that a graph missing a parameter leaves every target's list empty."""
+    assert diagnose_many(argument(), []) == Report(diagnose(argument()), {})
+    graph = argument()
+    graph.add_node(Node("Q"))
+    graph.add_relation(Relation("QT", "supports", "Q", "T", strength=0.4))
+    report = diagnose_many(graph, ["T", "P"])
+    assert [f.id for f in report.findings] == ["missing-parameter:base:Q", "unanchored:L", "unanchored:Q"]
+    assert dict(report.weak_points) == {"T": (), "P": ()}
+
+
+def test_diagnose_many_refuses_a_string():
+    """Test that a single string is refused rather than read as one target per character."""
+    with pytest.raises(ValidationError, match="not the string 'T'"):
+        diagnose_many(argument(), "T")
