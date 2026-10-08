@@ -94,6 +94,15 @@ between probabilities more than 0.1 apart, approached arbitrarily closely but
 never reached, so every pair that an absolute gap of 0.1 would report is
 reported too, up to a rounding allowance of 1e-12.
 
+Every finding that involves a probability is conditional on the credences
+supplied: the diagnostics measure what the encoded argument delivers at those
+credences, not whether the premises hold. With every premise at the same default
+credence, ranking the claims by their computed credences only counts their
+premises, and most claims stated with confidence are reported as overclaims;
+read the size of the gap, not the flag alone. The
+[documentation](https://isaac-cf-wong.github.io/credencegraph/reading-diagnostics/)
+works through this on small graphs.
+
 ## Command line
 
 The same graph can be built and queried from the shell. Every command takes
