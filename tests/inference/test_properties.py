@@ -10,7 +10,7 @@ from hypothesis import assume, given, reject, settings
 from hypothesis import strategies as st
 
 from credencegraph.core import ValidationError
-from credencegraph.inference import VariableElimination, ZeroProbabilityError, conditional, intervene
+from credencegraph.inference import VariableElimination, ZeroProbabilityError, conditional, elimination, intervene
 from credencegraph.semantics import PROPOSITION, compile_graph
 
 SEEDS = st.integers(0, 2**32 - 1)
@@ -147,6 +147,41 @@ def test_point_answer_is_the_predictive_probability(seed):
     # Measured roundoff on seeds 0-19999 (19727 pass the filter): at most 5.6e-16 absolute (56% of
     # atol alone) and 1.3e-14 relative; the worst case uses 0.62% of atol + rtol * |point|.
     np.testing.assert_allclose(numerator / denominator, point, rtol=1e-12, atol=1e-15)
+
+
+@SETTINGS
+@given(seed=SEEDS)
+def test_reusing_the_elimination_order_leaves_answers_bit_identical(seed):
+    """Test that an order reused across queries gives the same bits as one computed afresh.
+
+    Several assignments are asked of a network and of copies with other parameter values, in one
+    sequence that shares the cached orders, and again with the cache emptied before every query.
+    The copies share the network's scopes, so all but the first query of each assignment must reuse
+    an order.
+    """
+    rng = np.random.default_rng(seed)
+    network = compile_graph(random_graph(rng, extremes=False))
+    keys = list(network.parameters)
+    networks = [network] + [
+        network.with_parameters(dict(zip(keys, rng.uniform(0, 1, len(keys)), strict=True))) for _ in range(2)
+    ]
+    assignments = []
+    for _ in range(3):
+        values, constraints = _raw_assignment(rng, network)
+        assignments.append({**values, **constraints})
+    queries = [(net, assignment) for assignment in assignments for net in networks]
+
+    elimination._order.cache_clear()
+    reused = [ENGINE.probability(net, assignment) for net, assignment in queries]
+    info = elimination._order.cache_info()
+    fresh = []
+    for net, assignment in queries:
+        elimination._order.cache_clear()
+        fresh.append(ENGINE.probability(net, assignment))
+
+    assert reused == fresh
+    assert info.misses <= len(assignments)
+    assert info.hits >= len(queries) - len(assignments)
 
 
 @SETTINGS
