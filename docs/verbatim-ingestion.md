@@ -33,14 +33,15 @@ The contract is built on the current data model without changing the file
 format. These are the facts it relies on (paths are under `src/credencegraph/`):
 
 - `Node.kind` is a free label the engine attaches no meaning to
-  (`core/node.py:74`). The rubric type of a node is stored there.
-- `Node.statement` is optional text (`core/node.py:75`, `:95`), and
+  (`core/node.py:25`). The rubric type of a node is stored there.
+- `Node.statement` is optional text (`core/node.py:26`, `:36`, `:46`), and
   `SourceAnchor` already has `document`, `locator`, `quote` and `digest`
-  (`core/anchor.py:28-49`). The engine checks only that each is a non-empty
-  string; it defines no digest algorithm and does not compare `quote` with
-  `statement`.
-- `attributes` on nodes and relations is open, frozen JSON (`core/node.py:89`,
-  `core/relation.py:64`, `core/attributes.py:83-99`). Every field this contract
+  (`core/anchor.py:28-49`). Only `document` is required; `locator`, `quote` and
+  `digest` default to `None`, and the engine checks only that each one given is
+  a non-empty string (`core/anchor.py:39-49`). It defines no digest algorithm
+  and does not compare `quote` with `statement`.
+- `attributes` on nodes and relations is open, frozen JSON (`core/node.py:40`,
+  `core/relation.py:64`, `core/attributes.py:56-83`). Every field this contract
   adds to a node lives there.
 - A relation type outside `requires`, `supports`, `refutes`, `equivalent` and
   `exclusive` is an annotation that inference ignores
@@ -67,8 +68,8 @@ format. These are the facts it relies on (paths are under `src/credencegraph/`):
 Every node of an ingested graph has an **origin**, stored as
 `attributes.origin`, and a **type**, stored as `kind`.
 
-- `document`: A chunk of the ingested document, or a part of one. Text:
-  verbatim; equal to its anchor's `quote`.
+- `document`: A chunk of the ingested document, or a part of one. Text: verbatim
+  and equal to its anchor's `quote`, except a field child, which has none.
 - `analyst`: An implicit premise: something the argument needs that the document
   does not state. Text: the analyst's words; no source.
 - `evidence`: A check, an external source or a judgement bearing on another
@@ -145,7 +146,8 @@ in the order created. It is one of:
   digest is the digest of the span; or
 - a **field child**: `statement` is null, its single anchor is a copy of the
   parent's (so it is anchored, and its form is checked against the parent's
-  text), and it has a `form`. It has no text of its own.
+  text), and it has a `form`. It has no text of its own, so the rule that a
+  statement equals its quote does not apply to it.
 
 A child never carries free text. A compound has at least two children, and a
 child is never itself a compound.
@@ -331,8 +333,9 @@ This is what `ingest` must produce.
   or `unassigned`/`compound` on a non-document node.
 - `anchor-invalid`: A document node has other than one source, or its source
   lacks a locator, quote or digest.
-- `anchor-mismatch`: A document node's `statement` differs from its `quote`
-  (span children and chunks).
+- `anchor-mismatch`: A chunk's or span child's `statement` differs from its
+  `quote`. Field children are excluded: their `statement` is null and their
+  anchor is their parent's, whose `quote` must equal the parent's `statement`.
 - `digest-mismatch`: A `digest` is not the digest of its `quote`.
 - `analyst-has-source`: An analyst node has a source.
 - `part-of-invalid`: A child has other than one `part-of`, or its parent is not
@@ -495,7 +498,8 @@ What the commands guarantee:
   from `ID` with the rule's strength. `--verdict` sets `holds`, `fails` or
   `undetermined`.
 - Every command follows the existing conventions: `--json` output, exit status 1
-  on failure, and a file that is replaced only when the write succeeds.
+  on failure (`cli/common.py:1-7`), and a file that is replaced in one step only
+  when the write succeeds (`write_graph`, `cli/common.py:317-345`).
 
 New error codes: `invalid-rubric` (the rubric file is malformed or of an unknown
 `format`), `rubric-violation` (`check --level` found violations;
