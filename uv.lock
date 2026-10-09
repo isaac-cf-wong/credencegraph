@@ -258,7 +258,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 build = [{ name = "hatch", specifier = ">=1.18.1" }]
 dev = [
-    { name = "hypothesis", specifier = ">=6.168.4" },
+    { name = "hypothesis", specifier = ">=6.168.5" },
     { name = "jsonschema", specifier = ">=4.26.0" },
     { name = "mutmut", specifier = ">=3.8.0" },
     { name = "prek", specifier = ">=0.5.5" },
