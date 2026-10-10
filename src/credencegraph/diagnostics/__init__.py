@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from credencegraph.diagnostics.claims import DEFAULT_CLAIM_THRESHOLD, claims
 from credencegraph.diagnostics.records import (
+    CORRELATED_SUPPORT,
     CRUX,
     FAILURE_IMPACT,
     MISSING_PARAMETER,
@@ -21,7 +22,13 @@ from credencegraph.diagnostics.records import (
     Finding,
 )
 from credencegraph.diagnostics.report import Report, diagnose, diagnose_many
-from credencegraph.diagnostics.structure import missing_parameters, unanchored
+from credencegraph.diagnostics.structure import (
+    DEFAULT_MIN_SUPPORTS,
+    PROVENANCE_TYPES,
+    correlated_support,
+    missing_parameters,
+    unanchored,
+)
 from credencegraph.diagnostics.weak_points import (
     DEFAULT_FAILURE_THRESHOLD,
     crux,
@@ -33,12 +40,15 @@ from credencegraph.diagnostics.weak_points import (
 )
 
 __all__ = [
+    "CORRELATED_SUPPORT",
     "CRUX",
     "DEFAULT_CLAIM_THRESHOLD",
     "DEFAULT_FAILURE_THRESHOLD",
+    "DEFAULT_MIN_SUPPORTS",
     "FAILURE_IMPACT",
     "MISSING_PARAMETER",
     "OVERCLAIM",
+    "PROVENANCE_TYPES",
     "SENSITIVITY",
     "SINGLE_POINT_OF_FAILURE",
     "UNANCHORED",
@@ -47,6 +57,7 @@ __all__ = [
     "Finding",
     "Report",
     "claims",
+    "correlated_support",
     "crux",
     "derivatives",
     "diagnose",
