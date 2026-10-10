@@ -427,3 +427,25 @@ class TestDiagnoseTargets:
         assert result.exit_code == 0
         report = diagnose_many(claims_graph(), ["A", "B"])
         assert result.stdout.splitlines() == [f"{f.id}: {f.message}" for f in report.all_findings()]
+
+
+def test_support_pile_of_the_reading_page(cli, tmp_path):
+    """Test the commands of the reading page's support pile: the finding, then the common parent that clears it."""
+    path = tmp_path / "pile.json"
+    cli.json("init", path)
+    cli.json("add-node", path, "--id", "claim", "--base", "0")
+    for i in range(1, 11):
+        cli.json("add-node", path, "--id", f"reason-{i}", "--base", "1", "--source", "paper-x")
+        cli.json("relate", path, f"reason-{i}", "claim", "--type", "supports", "--strength", "0.2")
+    assert cli.json("query", path, "marginal", "claim")["point"] == pytest.approx(1 - 0.8**10, rel=1e-12, abs=0.0)
+    (finding,) = cli.json("diagnose", path)["findings"]
+    assert finding["id"] == "correlated-support:claim:document:paper-x"
+    assert finding["target"] is None
+    assert finding["nodes"] == ["claim", *(f"reason-{i}" for i in range(1, 11))]
+    assert finding["details"] == {"supports": 10.0, "min_supports": 2.0}
+    cli.json("add-node", path, "--id", "sound", "--base", "0.5", "--source", "paper-x")
+    for i in range(1, 11):
+        cli.json("relate", path, "sound", f"reason-{i}", "--type", "requires", "--strength", "1")
+    point = cli.json("query", path, "marginal", "claim")["point"]
+    assert point == pytest.approx(0.5 * (1 - 0.8**10), rel=1e-12, abs=0.0)
+    assert cli.json("diagnose", path)["findings"] == []

@@ -14,6 +14,7 @@ Every diagnostic returns a list of `Finding` records. A finding has an `id`
 | -------------------------- | --------------------------------------------------------------------------------- |
 | `missing_parameters`       | An inference variable without a `base`                                            |
 | `unanchored`               | An inference variable with no source and no inferential parent                    |
+| `correlated_support`       | Two or more supports of a node that share a source but no common parent           |
 | `claims`                   | \|logit(stated) − logit(computed)\| above a threshold (default 2 ln(11/9) ≈ 0.40) |
 | `sensitivity`              | ∂P(T)/∂θ for every parameter θ                                                    |
 | `crux`                     | \|∂P(T)/∂θ\| · sd(θ): T depends on θ _and_ θ is uncertain                         |
@@ -134,6 +135,21 @@ Parameters are treated as independent, so the most common source of
 overconfidence in a hand-built argument is a missing common cause: two premises
 that share an unstated assumption. Model the assumption as a proposition of its
 own with a relation into each premise, and it will show up in these rankings.
+
+**Correlated supports** are the same gap in the arguments themselves. The
+`supports` relations into a node are a noisy OR of independent reasons, so ten
+of strength 0.2 into a node of base 0 give it 1 − 0.8¹⁰ = 0.893, whether they
+are ten experiments or one source's reasoning written down ten times.
+`correlated_support` reports, for each node, a group of at least `min_supports`
+(2 by default) supporting variables that share a source, anchored in the same
+document or pointing at the same node through an `authored_by` or `derived_from`
+annotation, when no variable is a parent of all of them through relations of
+nonzero strength. The finding has no value; its `details` hold `supports`, the
+size of the group, and `min_supports`. The fix is a common parent that each of
+them requires with strength 1: the group can then lift a node of base b to at
+most b + (1 − b) c, c the common parent's credence, however large it is. See
+[Reading the diagnostics](../../reading-diagnostics.md#supports-from-one-source-pile-up)
+for a worked example.
 
 <!-- prettier-ignore-start -->
 

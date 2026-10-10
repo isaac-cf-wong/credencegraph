@@ -12,6 +12,7 @@ from credencegraph.core.errors import ValidationError
 
 MISSING_PARAMETER = "missing-parameter"
 UNANCHORED = "unanchored"
+CORRELATED_SUPPORT = "correlated-support"
 OVERCLAIM = "overclaim"
 UNDERCLAIM = "underclaim"
 SENSITIVITY = "sensitivity"
@@ -32,7 +33,8 @@ class Finding:
 
     Attributes:
         id: Identifies the finding within a report: ``<diagnostic>:<subject>``, where the subject is
-            a node id, or ``base:<node id>`` or ``strength:<relation id>`` for a parameter.
+            a node id, ``base:<node id>`` or ``strength:<relation id>`` for a parameter, or
+            ``<node id>:<provenance>`` for a group of supports, such as ``claim:document:doi:10.1/x``.
         diagnostic: The diagnostic that produced it, such as ``"crux"``.
         message: A one-line explanation for a human reader.
         nodes: The ids of the nodes involved.

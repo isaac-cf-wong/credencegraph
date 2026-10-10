@@ -11,7 +11,7 @@ from credencegraph.core.errors import ValidationError
 from credencegraph.core.graph import Graph
 from credencegraph.diagnostics.claims import DEFAULT_CLAIM_THRESHOLD, claims
 from credencegraph.diagnostics.records import Finding
-from credencegraph.diagnostics.structure import missing_parameters, unanchored
+from credencegraph.diagnostics.structure import DEFAULT_MIN_SUPPORTS, correlated_support, missing_parameters, unanchored
 from credencegraph.diagnostics.weak_points import (
     DEFAULT_FAILURE_THRESHOLD,
     crux_findings,
@@ -32,8 +32,8 @@ class Report:
     """The findings for a graph and for each of several target nodes.
 
     Attributes:
-        findings: The graph-wide findings: missing parameters, unanchored variables, overclaims and
-            underclaims. They do not depend on a target and appear once.
+        findings: The graph-wide findings: missing parameters, unanchored variables, correlated
+            supports, overclaims and underclaims. They do not depend on a target and appear once.
         weak_points: Each target's sensitivity, crux, single points of failure, failure impact and
             value of information, by target id in the order the targets were given. A finding id is
             unique within one target's list; the same id, such as ``crux:strength:r1``, can recur for
@@ -80,12 +80,13 @@ def diagnose(  # noqa: PLR0913 - the options after the target are keyword-only
     evidence: Mapping[str, bool] | None = None,
     claim_threshold: float = DEFAULT_CLAIM_THRESHOLD,
     failure_threshold: float = DEFAULT_FAILURE_THRESHOLD,
+    min_supports: int = DEFAULT_MIN_SUPPORTS,
     engine: Engine | None = None,
 ) -> list[Finding]:
     """Run the diagnostics that apply to a graph and, optionally, a target node.
 
-    The structural checks (missing parameters, unanchored variables) always run. If a parameter is
-    missing the graph cannot be compiled, and the report stops there. Otherwise the stated credences
+    The structural checks (missing parameters, unanchored variables, correlated supports) always
+    run. If a parameter is missing the graph cannot be compiled, and the report stops there. Otherwise the stated credences
     are compared with the computed ones, and, when a target is given, its sensitivity, crux,
     single points of failure, failure impact and value of information follow. ``diagnose_many``
     does the same for several targets, running the graph-wide checks once.
@@ -107,6 +108,7 @@ def diagnose(  # noqa: PLR0913 - the options after the target are keyword-only
             ``failure_impact`` ranking, a fraction of the target's own probability; the default, 0.1,
             is a convention of this package. A premise behind one ``requires`` of strength r crosses
             it only if r > 1 - threshold.
+        min_supports: The smallest group passed to ``correlated_support``, at least 2.
         engine: The exact engine; variable elimination by default.
 
     Returns:
@@ -114,8 +116,8 @@ def diagnose(  # noqa: PLR0913 - the options after the target are keyword-only
         ready for ``json.dumps``.
 
     Raises:
-        ValidationError: If a threshold is out of range, ``target`` or an evidence node is not an
-            inference variable, or the evidence observes the target.
+        ValidationError: If a threshold or ``min_supports`` is out of range, ``target`` or an evidence
+            node is not an inference variable, or the evidence observes the target.
         CompileError: If the graph has no missing parameter but still fails to compile, for example
             over conflicting bases on merged nodes.
         ZeroProbabilityError: If the evidence and the ``exclusive`` constraints have probability zero.
@@ -126,6 +128,7 @@ def diagnose(  # noqa: PLR0913 - the options after the target are keyword-only
         evidence=evidence,
         claim_threshold=claim_threshold,
         failure_threshold=failure_threshold,
+        min_supports=min_supports,
         engine=engine,
     )
     return report.all_findings()
@@ -138,6 +141,7 @@ def diagnose_many(  # noqa: PLR0913 - the options after the targets are keyword-
     evidence: Mapping[str, bool] | None = None,
     claim_threshold: float = DEFAULT_CLAIM_THRESHOLD,
     failure_threshold: float = DEFAULT_FAILURE_THRESHOLD,
+    min_supports: int = DEFAULT_MIN_SUPPORTS,
     engine: Engine | None = None,
 ) -> Report:
     """Run the graph-wide diagnostics once and the weak-point diagnostics for each of several targets.
@@ -154,6 +158,7 @@ def diagnose_many(  # noqa: PLR0913 - the options after the targets are keyword-
         claim_threshold: The threshold passed to ``claims``, a gap in natural log-odds.
         failure_threshold: The threshold passed to ``single_points_of_failure``, a fraction of each
             target's own probability.
+        min_supports: The smallest group passed to ``correlated_support``, at least 2.
         engine: The exact engine; variable elimination by default.
 
     Returns:
@@ -161,8 +166,9 @@ def diagnose_many(  # noqa: PLR0913 - the options after the targets are keyword-
         ``report.to_dicts()`` is ready for ``json.dumps``.
 
     Raises:
-        ValidationError: If ``targets`` is a single string, a threshold is out of range, a target or
-            an evidence node is not an inference variable, or the evidence observes a target.
+        ValidationError: If ``targets`` is a single string, a threshold or ``min_supports`` is out of
+            range, a target or an evidence node is not an inference variable, or the evidence observes
+            a target.
         CompileError: If the graph has no missing parameter but still fails to compile, for example
             over conflicting bases on merged nodes.
         ZeroProbabilityError: If the evidence and the ``exclusive`` constraints have probability zero.
@@ -172,10 +178,10 @@ def diagnose_many(  # noqa: PLR0913 - the options after the targets are keyword-
         raise ValidationError(msg)
     targets = list(dict.fromkeys(targets))
     findings = missing_parameters(graph)
-    anchors = unanchored(graph)
+    structural = [*unanchored(graph), *correlated_support(graph, min_supports)]
     if findings:
-        return Report((*findings, *anchors), dict.fromkeys(targets, ()))
-    findings.extend(anchors)
+        return Report((*findings, *structural), dict.fromkeys(targets, ()))
+    findings.extend(structural)
     engine = engine or VariableElimination()
     network = compile_graph(graph)
     findings.extend(claims(graph, network, evidence=evidence, threshold=claim_threshold, engine=engine))

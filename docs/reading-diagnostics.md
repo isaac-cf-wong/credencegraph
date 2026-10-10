@@ -2,8 +2,9 @@
 title: Reading the diagnostics
 description:
     What the diagnostics measure, why equal credences rank claims by counting
-    premises, how to read an overclaim, how to encode a null result, and what
-    the structure of an argument shows on its own.
+    premises, how to read an overclaim, how to encode a null result, how to keep
+    supports from one source from piling up, and what the structure of an
+    argument shows on its own.
 ---
 
 Every finding that involves a probability is conditional on the credences the
@@ -145,6 +146,77 @@ parameter space not covered, makes an upper limit too tight: that premise is
 required. A failure that only makes the limit looser than it need be, such as a
 conservative noise model, leaves "the quantity is below L" true, and does not
 belong under `requires`.
+
+## Supports from one source pile up
+
+`supports` is a noisy OR: each support is a reason of its own, and each that
+holds has its own chance to make the claim true. Ten reasons of strength 0.2
+into a claim of base 0, all of them holding, give it
+
+1 − (1 − 0.2)¹⁰ = 1 − 0.8¹⁰ = 0.893,
+
+where one reason gives 0.2. That is right for ten independent reasons, such as
+ten separate experiments. It is wrong for ten reasons that rest on one thing,
+such as one author's unverified reasoning, one style of argument or one dataset:
+if that one thing is unsound, they fail together, and ten of them say little
+more than one. Weak reasons are cheap to write down, and the noisy OR rewards
+writing down many of them.
+
+```bash
+credencegraph init pile.json
+credencegraph add-node pile.json --id claim --base 0
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  credencegraph add-node pile.json --id reason-$i --base 1 --source paper-x
+  credencegraph relate pile.json reason-$i claim --type supports --strength 0.2
+done
+credencegraph query pile.json marginal claim   # 0.892626
+credencegraph diagnose pile.json
+# correlated-support:claim:document:paper-x: node 'claim' has 10 supports, ...
+#   that share document 'paper-x' but no common parent: ...
+```
+
+The `correlated-support` finding names a node with two or more supports that
+share a source and no common parent. Two supports share a source when they are
+anchored in the same document, or when each points at the same node through an
+`authored_by` or `derived_from` annotation. Annotations never change a credence,
+so recording where a reason came from is free: the diagnostic reads it,
+inference does not.
+
+**Give the shared source a proposition of its own.** Add `sound`, "this source's
+unverified reasoning is sound", with the credence c you would defend for it, and
+have each reason require it with strength 1:
+
+```bash
+credencegraph add-node pile.json --id sound --base 0.5 --source paper-x
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  credencegraph relate pile.json sound reason-$i --type requires --strength 1
+done
+credencegraph query pile.json marginal claim   # 0.446313
+credencegraph diagnose pile.json               # no findings
+```
+
+If `sound` fails, every reason fails with it and the claim keeps its base b; if
+it holds, the reasons act as before. With N reasons of strength s,
+
+P(claim) = (1 − c) b + c (1 − (1 − b)(1 − s)ᴺ) ≤ b + (1 − b) c,
+
+here 0.5 · 0.893 = 0.446. However many reasons the source gives, the claim rises
+no higher than b + (1 − b) c, 0.5 here: the pile saturates at the credence of
+what it rests on.
+
+**Restatements gain nothing.** Below that cap the pile still grows with N: one
+reason gives 0.5 · 0.2 = 0.1 and ten give 0.446. That is right when the reasons
+are distinct arguments that each might fail on its own, given the source. When
+they are one argument said N ways, the doubt belongs to the argument, not to
+each restatement: put it in c, here the 0.2 the argument deserves, and give each
+restatement strength 1. With s = 1 the formula above is b + (1 − b) c for every
+N ≥ 1: ten restatements give the claim 0.2, exactly what one gives.
+
+The diagnostic cannot tell restatements from independent reasons that happen to
+come from one paper, such as two separate experiments it reports. When the
+supports are independent, the finding can be dismissed; when they are not, the
+common parent is the fix, and it then shows up in the crux and value of
+information rankings like any premise several paths share.
 
 ## What the structure shows on its own
 

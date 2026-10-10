@@ -91,6 +91,29 @@ def test_thresholds_are_passed_on():
     assert "single-point-of-failure:P" not in defaults
 
 
+def test_correlated_supports_are_graph_wide():
+    """Test that correlated supports join the structural findings, before and without compiling."""
+    graph = argument()
+    graph.add_node(Node("M", base=0.5, sources=[ANCHOR]))
+    graph.add_relation(Relation("MT", "supports", "M", "T", strength=0.5))
+    graph.add_node(Node("N", base=0.5, sources=[ANCHOR]))
+    graph.add_relation(Relation("NT", "supports", "N", "T", strength=0.5))
+    correlated = "correlated-support:T:document:doi:10.0000/example"
+    assert [f.id for f in diagnose(graph)] == ["unanchored:L", correlated, "overclaim:T"]
+    assert [f.id for f in diagnose(graph, min_supports=3)] == ["unanchored:L", "overclaim:T"]
+    assert [f.id for f in diagnose_many(graph, ["T"]).findings] == ["unanchored:L", correlated, "overclaim:T"]
+    graph.add_node(Node("Q"))
+    graph.add_relation(Relation("QT", "supports", "Q", "T", strength=0.4))
+    assert [f.id for f in diagnose(graph, "T")] == [
+        "missing-parameter:base:Q",
+        "unanchored:L",
+        "unanchored:Q",
+        correlated,
+    ]
+    with pytest.raises(ValidationError, match="min_supports"):
+        diagnose(graph, min_supports=1)
+
+
 def test_unknown_target():
     """Test that a target that is not a node is rejected."""
     with pytest.raises(ValidationError, match="no node 'nope'"):
@@ -152,6 +175,9 @@ def test_messages_stay_on_one_line_whatever_the_ids():
     graph.add_node(Node(target, base=0.3, stated=0.9))
     graph.add_node(Node(low, base=0.8, stated=0.1, sources=[ANCHOR]))
     graph.add_relation(Relation(f"needs{BREAKS}r", "requires", premise, target, strength=Beta(8, 2)))
+    for k in range(2):
+        reason = graph.add_node(Node(f"reason{k}{BREAKS}", base=0.5, sources=[SourceAnchor(f"doc{BREAKS}d")]))
+        graph.add_relation(Relation(f"why{k}{BREAKS}", "supports", reason.id, target, strength=0.5))
     findings = diagnose(graph, target, failure_threshold=0.5)
 
     broken = Graph()
@@ -164,6 +190,7 @@ def test_messages_stay_on_one_line_whatever_the_ids():
     assert {f.diagnostic for f in findings} == {
         "missing-parameter",
         "unanchored",
+        "correlated-support",
         "overclaim",
         "underclaim",
         "sensitivity",
