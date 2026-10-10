@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -10,6 +11,7 @@ import typer
 from credencegraph.cli.common import (
     INVALID_ARGUMENT,
     PROBLEM_TOO_LARGE,
+    RUBRIC_VIOLATION,
     ZERO_PROBABILITY,
     CliError,
     GraphPath,
@@ -20,6 +22,7 @@ from credencegraph.cli.common import (
     compile_failure,
     parse_assignment,
     read_graph,
+    read_rubric,
     require_variables,
     respond,
     translate,
@@ -33,6 +36,7 @@ from credencegraph.diagnostics.weak_points import DEFAULT_FAILURE_THRESHOLD
 from credencegraph.inference.elimination import DEFAULT_MAX_FACTOR_SIZE, VariableElimination
 from credencegraph.inference.engine import Query
 from credencegraph.inference.errors import ProblemTooLargeError, ZeroProbabilityError
+from credencegraph.rubric.validate import COMPILE_ERROR, LEVELS, TYPED, check_graph
 from credencegraph.semantics.compiler import compile_graph, inference_sets
 from credencegraph.semantics.errors import CompileError
 from credencegraph.semantics.network import Network
@@ -264,18 +268,42 @@ def diagnose_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to ea
     respond("diagnose", as_json, action)
 
 
-def check_command(path: GraphPath, as_json: JsonOption = False) -> None:
-    """Check that a graph file is valid and can be compiled for inference.
+RubricOption = Annotated[
+    Path | None,
+    typer.Option("--rubric", help="A TOML rubric to check the graph against.", show_default=False),
+]
+
+
+def check_command(
+    path: GraphPath,
+    rubric: RubricOption = None,
+    level: Annotated[
+        str | None,
+        typer.Option(
+            help="With --rubric: anchored, typed or assessed; each level includes the ones before it. Default: typed.",
+            show_default=False,
+        ),
+    ] = None,
+    as_json: JsonOption = False,
+) -> None:
+    """Check that a graph file is valid and can be compiled for inference, or that it meets a rubric.
 
     The file must parse as a credencegraph graph: known fields, unique ids, relations between existing
     nodes, no cycle among requires, supports and refutes, and no equivalent or exclusive relation
-    joining a node to itself. It must also compile: every inference
+    joining a node to itself. Without --rubric it must also compile: every inference
     variable needs a base, and equivalent nodes need the same one. A graph that does not compile is
     reported as a compile-error, with the counts and every finding under details. An unanchored
     variable is reported as a warning and does not fail the check.
+
+    With --rubric, the graph is checked against the rubric at --level instead, and every violation
+    is reported as a rubric-violation. The graph is compiled only at the assessed level.
     """
 
     def action() -> Result:
+        if level is not None and rubric is None:
+            raise CliError(INVALID_ARGUMENT, "--level needs --rubric", "pass --rubric with the rubric to check against")
+        if rubric is not None:
+            return _rubric_check(path, rubric, level or TYPED)
         graph = read_graph(path)
         warnings = unanchored(graph)
         counts = {"path": str(path), "nodes": len(graph.nodes), "relations": len(graph.relations)}
@@ -291,3 +319,52 @@ def check_command(path: GraphPath, as_json: JsonOption = False) -> None:
         return Result(payload, text)
 
     respond("check", as_json, action)
+
+
+def _rubric_check(path: Path, rubric_path: Path, level: str) -> Result:
+    """Check a graph file against a rubric at a level.
+
+    Args:
+        path: The graph file.
+        rubric_path: The rubric file.
+        level: The validation level.
+
+    Returns:
+        ``{"path", "rubric", "level", "nodes", "relations", "violations"}``, with no violations.
+
+    Raises:
+        CliError: A ``rubric-violation`` listing every violation in ``details.violations``, with the
+            compiler's ``compile-error`` details under ``details.compile_error`` when the graph does
+            not compile; or ``invalid-argument`` for an unknown level.
+    """
+    if level not in LEVELS:
+        raise CliError(
+            INVALID_ARGUMENT,
+            f"--level must be one of {', '.join(LEVELS)}, got {level!r}",
+            f"pass --level {' or '.join(LEVELS)}",
+        )
+    graph = read_graph(path)
+    rubric = read_rubric(rubric_path)
+    violations = check_graph(graph, rubric, level)
+    payload = {
+        "path": str(path),
+        "rubric": rubric.identity(),
+        "level": level,
+        "nodes": len(graph.nodes),
+        "relations": len(graph.relations),
+        "violations": [finding.to_dict() for finding in violations],
+    }
+    if not violations:
+        return Result(payload, [f"{path}: ok at level {level} against rubric {rubric.name} {rubric.version}"])
+    if any(finding.diagnostic == COMPILE_ERROR for finding in violations):
+        try:
+            compile_graph(graph)
+        except CompileError as error:
+            payload["compile_error"] = compile_failure(graph, error).details
+    listed = "; ".join(f"{finding.diagnostic}: {finding.message}" for finding in violations)
+    raise CliError(
+        RUBRIC_VIOLATION,
+        f"{len(violations)} violation(s) of rubric {rubric.name!r} at level {level}: {listed}",
+        "each violation names its node and rule; fix them, or check at a lower --level",
+        payload,
+    )

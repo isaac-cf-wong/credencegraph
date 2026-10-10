@@ -20,13 +20,15 @@ from typing import Annotated, Any, NoReturn
 import typer
 
 from credencegraph.core.anchor import SourceAnchor
-from credencegraph.core.credence import Beta, Credence, Point
+from credencegraph.core.credence import Credence, Point
+from credencegraph.core.credence import parse_credence as core_parse_credence
 from credencegraph.core.errors import CredenceGraphError, CycleError, ValidationError
 from credencegraph.core.graph import Graph
 from credencegraph.core.serialization import credence_to_json, dumps, loads
 from credencegraph.diagnostics.records import render_item
 from credencegraph.diagnostics.structure import missing_parameters
 from credencegraph.inference.errors import ProblemTooLargeError, ZeroProbabilityError
+from credencegraph.rubric.model import Rubric, RubricError, load_rubric
 from credencegraph.semantics.compiler import compile_graph, inference_sets
 from credencegraph.semantics.errors import CompileError
 from credencegraph.semantics.network import Network
@@ -43,6 +45,8 @@ CYCLE = "cycle"
 COMPILE_ERROR = "compile-error"
 ZERO_PROBABILITY = "zero-probability"
 PROBLEM_TOO_LARGE = "problem-too-large"
+INVALID_RUBRIC = "invalid-rubric"
+RUBRIC_VIOLATION = "rubric-violation"
 
 ERROR_CODES = (
     FILE_EXISTS,
@@ -56,6 +60,8 @@ ERROR_CODES = (
     COMPILE_ERROR,
     ZERO_PROBABILITY,
     PROBLEM_TOO_LARGE,
+    INVALID_RUBRIC,
+    RUBRIC_VIOLATION,
 )
 
 # Why no world satisfies the exclusive relations. If every base and strength lies strictly between 0
@@ -70,6 +76,7 @@ CREDENCE_FORMS = "a probability such as 0.3, or beta:ALPHA,BETA such as beta:8,2
 
 JsonOption = Annotated[bool, typer.Option("--json", help="Print one JSON object on stdout instead of text.")]
 GraphPath = Annotated[Path, typer.Argument(help="The graph file.", show_default=False)]
+NodeArgument = Annotated[str, typer.Argument(help="The node's id.", show_default=False)]
 
 
 @dataclass
@@ -314,6 +321,34 @@ def read_graph(path: Path) -> Graph:
         ) from None
 
 
+def read_rubric(path: Path) -> Rubric:
+    """Load a rubric file.
+
+    Args:
+        path: The TOML file.
+
+    Returns:
+        The rubric.
+
+    Raises:
+        CliError: If the file is missing or unreadable, or is not a valid rubric.
+    """
+    try:
+        return load_rubric(path)
+    except FileNotFoundError:
+        raise CliError(
+            FILE_NOT_FOUND, f"no rubric file at {str(path)!r}", "pass --rubric the path of a TOML rubric"
+        ) from None
+    except (OSError, UnicodeDecodeError) as error:
+        raise CliError(IO_ERROR, f"cannot read {str(path)!r}: {error}") from None
+    except RubricError as error:
+        raise CliError(
+            INVALID_RUBRIC,
+            f"{str(path)!r} is not a valid rubric: {error}",
+            "fix the item named in the message; the rubric format is described under 'Rubric format' in the docs",
+        ) from None
+
+
 def write_graph(graph: Graph, path: Path) -> None:
     """Write a graph file, replacing it in one step so a failure leaves the old file intact.
 
@@ -345,17 +380,6 @@ def write_graph(graph: Graph, path: Path) -> None:
         raise CliError(IO_ERROR, f"cannot write {str(path)!r}: {error}") from None
 
 
-def _numbers(text: str, count: int) -> list[float] | None:
-    """Parse ``count`` comma-separated floats, or return ``None`` if ``text`` is not that."""
-    parts = text.split(",")
-    if len(parts) != count:
-        return None
-    try:
-        return [float(part) for part in parts]
-    except ValueError:
-        return None
-
-
 def parse_credence(text: str, option: str) -> Credence:
     """Parse a credence: a bare probability is a ``Point``, ``beta:A,B`` is a ``Beta``.
 
@@ -369,20 +393,10 @@ def parse_credence(text: str, option: str) -> Credence:
     Raises:
         CliError: If the value is neither form, or its numbers are out of range.
     """
-    kind, colon, rest = text.partition(":")
     try:
-        if not colon:
-            try:
-                return Point(float(text))
-            except ValueError:
-                pass
-        elif kind.strip().lower() == "beta":
-            numbers = _numbers(rest, 2)
-            if numbers is not None:
-                return Beta(*numbers)
+        return core_parse_credence(text)
     except ValidationError as error:
-        raise CliError(INVALID_ARGUMENT, f"{option} {text!r}: {error}", f"{option} takes {CREDENCE_FORMS}") from None
-    raise CliError(INVALID_ARGUMENT, f"{option} {text!r} is not a credence", f"{option} takes {CREDENCE_FORMS}")
+        raise CliError(INVALID_ARGUMENT, f"{option} {error}", f"{option} takes {CREDENCE_FORMS}") from None
 
 
 def parse_source(text: str) -> SourceAnchor:

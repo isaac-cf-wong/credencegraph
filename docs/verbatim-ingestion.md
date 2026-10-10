@@ -1,5 +1,5 @@
 ---
-title: Verbatim-chunk ingestion (design)
+title: Verbatim-chunk ingestion
 description:
     The contract for building a graph from a document's own text — node and edge
     kinds, the rubric format, validation levels, coverage, re-anchoring, the
@@ -7,10 +7,14 @@ description:
     layer.
 ---
 
-> **Design, not yet implemented.** This page is the contract that the
-> verbatim-chunk features will be built against. None of the commands, options,
-> rules or error codes it introduces exist in the current release. Everything it
-> says about the engine as it is today is marked as such and cites the code.
+> **Partly implemented.** This page is the contract that the verbatim-chunk
+> features are built against. The core part now exists, in
+> `credencegraph.rubric`: text normalisation and the digest, rubric files, the
+> `anchored`, `typed` and `assessed` checks with faithfulness, coverage, and the
+> `check --rubric --level`, `coverage`, `split` and `annotate` commands. Not yet
+> implemented: the ingestion layer (`ingest` and its readers, `missing-extra`),
+> `reanchor`, and `add-node --origin`. The section on what the engine provided
+> before this contract describes it as it was and cites that code.
 
 ## Why
 
@@ -179,10 +183,12 @@ field child. Every `number`, `quantity` and `eqref` value, and every `verbatim`
 string, must be found in it:
 
 - **Numerals** recognised in the text are integers and decimals with an optional
-  sign, scientific forms `1.2e-3`, `1.2×10^-3`, `1.2 \times 10^{-3}`, digit
-  groups of three separated by a comma or a thin space (`1,000`), and a numeral
-  followed by `%`, which contributes both its value and its value divided
-  by 100. A form number matches a numeral that parses to the same float.
+  sign (`+`, `-` or `−`, not directly after a letter, digit or dot, so the
+  hyphen in `5-7` or `s-012` is not a minus), scientific forms `1.2e-3`,
+  `1.2×10^-3`, `1.2 \times 10^{-3}`, digit groups of three separated by a comma
+  or a thin space (`1,000`), and a numeral followed by `%`, which contributes
+  both its value and its value divided by 100. A form number matches a numeral
+  that parses to the same float.
 - **Units** match a whitespace- or punctuation-delimited token of the text
   exactly; inside LaTeX, the argument of `\mathrm{…}`, `\text{…}` and `\si{…}`
   counts as a token.
@@ -236,21 +242,24 @@ A rubric is a TOML file. The core reads it with the standard library
 (`tomllib`); it adds no dependency.
 
 ```toml
-[rubric]
-format = 1                 # the rubric format version this file is written in
-name = "methods-paper"     # identifies the rubric in reports
-version = "2026.1"         # the rubric's own version, chosen by its author
+# An example rubric for a methods paper. It is the rubric used in the documentation and the tests
+# of credencegraph; its priors are illustrative, not a recommendation.
 
-# Parameters that `scope` fields may range over.
+[rubric]
+format = 1             # the rubric format version this file is written in
+name = "methods-paper" # identifies the rubric in reports
+version = "2026.1"     # the rubric's own version, chosen by its author
+
+# Parameters that `scope` fields may range over. TOML has no null, so an open end is -inf or inf.
 [parameters.sample_rate]
 unit = "Hz"
-domain = [0, null]         # [low, high]; null is open
+domain = [0, inf]
 
 [parameters.segment_length]
 unit = "s"
-domain = [0, null]
+domain = [0, inf]
 
-# Types given to chunks by `ingest`; any unit not listed starts `unassigned`.
+# Types given to chunks by ingestion; any unit not listed starts `unassigned`.
 [initial]
 reference = "reference"
 
@@ -259,6 +268,7 @@ description = "A bibliography entry."
 
 [types.method]
 description = "What was done: a procedure, test or dataset."
+base = "beta:9,1"
 form.kind = { type = "enum", values = ["test", "simulation", "dataset", "procedure"], required = true }
 form.scope = { type = "scope" }
 
@@ -271,12 +281,24 @@ form.trend = { type = "enum", values = ["vanishes", "increases", "decreases", "b
 form.value = { type = "quantity" }
 form.scope = { type = "scope" }
 
+[types.derivation]
+description = "A step of mathematics the document carries out."
+assess = true
+base = "beta:9,1"
+form.equation = { type = "eqref" }
+
+[types.literature_claim]
+description = "A finding the document takes from a cited work."
+base = "beta:8,2"
+form.statement = { type = "verbatim", required = true }
+
 [types.claim]
 description = "A conclusion the document asserts."
 assess = true
 base = "beta:5,5"
 form.shape = { type = "enum", values = ["universal", "existential", "comparative", "bound"], required = true }
 form.statement = { type = "verbatim", required = true }
+form.bound = { type = "number" }
 form.scope = { type = "scope" }
 rests_on = { types = ["result", "method", "derivation", "literature_claim", "assumption"], min = 1, relation = "requires", strength = "beta:9,1" }
 
@@ -295,11 +317,12 @@ origins = ["evidence"]
 - `rubric.name`, `rubric.version`: Free strings identifying the rubric, echoed
   in every report.
 - `parameters.<name>.unit`, `domain`: A parameter `scope` fields may name;
-  `domain` is `[low, high]`, `null` for open.
+  `domain` is `[low, high]`, open by default. TOML has no null, so an open end
+  is written `-inf` or `inf`.
 - `initial.<unit>`: The type `ingest` gives chunks of that unit; the default is
   `unassigned`.
 - `types.<name>`: A node type. The name may not be `unassigned` or `compound`.
-- `description`: Shown by `coverage` and in errors.
+- `description`: Shown by `coverage` and in errors; default empty.
 - `origins`: The origins the type may be used with; default `["document"]`.
 - `assess`: Whether nodes of this type need an assessment at the `assessed`
   level; default `false`.
@@ -307,13 +330,19 @@ origins = ["evidence"]
   node has none, in the credence syntax of the command line (`0.3`, `beta:8,2`).
 - `form.<field>`: A form field: `type` (a field type above), `required` (default
   `false`), and `values` for `enum`.
-- `rests_on`: The edge rule: at least `min` relations of type `relation`
-  (`requires` or `supports`) into the node from nodes whose type is in `types`.
-  `strength` is what `annotate --rests-on` gives the relation it creates.
+- `rests_on`: The edge rule: at least `min` (default 1) relations of type
+  `relation` (`requires` or `supports`) into the node from nodes whose type is
+  in `types`, each of which must be a declared type. `strength` is what
+  `annotate --rests-on` gives the relation it creates. `types`, `relation` and
+  `strength` are required.
 
 Unknown keys are an error, so a misspelt rule is not silently ignored. A rubric
 is data: its priors are the author's, and the public package ships only the
-example rubric used in its tests and documentation.
+example rubric used in its tests and documentation, the one above, which is also
+the file
+[`docs/examples/methods-paper.toml`](https://github.com/isaac-cf-wong/credencegraph/blob/main/docs/examples/methods-paper.toml).
+Every type a node can rest on has a `base`, so that a classified graph can
+compile at the `assessed` level.
 
 ## Validation levels
 

@@ -1,0 +1,68 @@
+# An example rubric for a methods paper. It is the rubric used in the documentation and the tests
+# of credencegraph; its priors are illustrative, not a recommendation.
+
+[rubric]
+format = 1             # the rubric format version this file is written in
+name = "methods-paper" # identifies the rubric in reports
+version = "2026.1"     # the rubric's own version, chosen by its author
+
+# Parameters that `scope` fields may range over. TOML has no null, so an open end is -inf or inf.
+[parameters.sample_rate]
+unit = "Hz"
+domain = [0, inf]
+
+[parameters.segment_length]
+unit = "s"
+domain = [0, inf]
+
+# Types given to chunks by ingestion; any unit not listed starts `unassigned`.
+[initial]
+reference = "reference"
+
+[types.reference]
+description = "A bibliography entry."
+
+[types.method]
+description = "What was done: a procedure, test or dataset."
+base = "beta:9,1"
+form.kind = { type = "enum", values = ["test", "simulation", "dataset", "procedure"], required = true }
+form.scope = { type = "scope" }
+
+[types.result]
+description = "What was found."
+assess = true
+base = "beta:8,2"
+form.quantity = { type = "verbatim", required = true }
+form.trend = { type = "enum", values = ["vanishes", "increases", "decreases", "bounded"] }
+form.value = { type = "quantity" }
+form.scope = { type = "scope" }
+
+[types.derivation]
+description = "A step of mathematics the document carries out."
+assess = true
+base = "beta:9,1"
+form.equation = { type = "eqref" }
+
+[types.literature_claim]
+description = "A finding the document takes from a cited work."
+base = "beta:8,2"
+form.statement = { type = "verbatim", required = true }
+
+[types.claim]
+description = "A conclusion the document asserts."
+assess = true
+base = "beta:5,5"
+form.shape = { type = "enum", values = ["universal", "existential", "comparative", "bound"], required = true }
+form.statement = { type = "verbatim", required = true }
+form.bound = { type = "number" }
+form.scope = { type = "scope" }
+rests_on = { types = ["result", "method", "derivation", "literature_claim", "assumption"], min = 1, relation = "requires", strength = "beta:9,1" }
+
+[types.assumption]
+description = "A premise taken without support, stated or implicit."
+origins = ["document", "analyst"]
+base = "beta:8,2"
+
+[types.check]
+description = "A check run on another node."
+origins = ["evidence"]
