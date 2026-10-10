@@ -94,8 +94,17 @@ class Beta:
 
     @property
     def mean(self) -> float:
-        """The mean ``alpha / (alpha + beta)``."""
-        return self.alpha / self.concentration
+        """The mean ``alpha / (alpha + beta)``.
+
+        When ``alpha + beta`` overflows to infinity, both parameters are halved first. Halving
+        a float this large is exact, so the ratio is unchanged and the mean is computed
+        correctly instead of collapsing to zero.
+        """
+        total = self.concentration
+        if math.isinf(total):
+            half_alpha = self.alpha / 2.0
+            return half_alpha / (half_alpha + self.beta / 2.0)
+        return self.alpha / total
 
     @property
     def variance(self) -> float:
