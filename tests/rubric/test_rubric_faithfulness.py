@@ -63,6 +63,12 @@ def test_has_numeral_compares_values():
         ("at 3 m/s", "m/s", True),
         ("at 3 m/s", "m", True),
         ("no unit", "s", False),
+        ("a proportion of 1.1%", "%", True),
+        ("a proportion of 1.1\\%", "%", True),
+        ("a proportion of 1.1 %", "%", True),
+        ("a proportion of 1.1", "%", False),
+        ("at 20\N{DEGREE SIGN}C", "\N{DEGREE SIGN}C", True),
+        ("at 20\N{DEGREE SIGN}Cx", "\N{DEGREE SIGN}C", False),
     ],
 )
 def test_has_unit(text, unit, expected):

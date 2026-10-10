@@ -345,6 +345,24 @@ def test_quantity_and_eqref_faithfulness():
     assert violations(build(other)) == ["form-not-in-text:s-1"]
 
 
+def test_percent_quantity_attached_to_its_numeral():
+    """Test that a quantity in percent is found in text that writes the percent sign against the numeral."""
+    text = "A measured proportion is 1.1%."
+    node = chunk("s-1", text, "result", base=0.8, attributes={"origin": "document"})
+
+    def check(value, chunk_text=text):
+        form = {"quantity": "A measured proportion", "value": value}
+        source = chunk("s-1", chunk_text)
+        return violations(
+            build(with_attributes(dataclasses.replace(node, statement=chunk_text, sources=source.sources), form=form))
+        )
+
+    assert check({"value": 1.1, "unit": "%"}) == []
+    assert check({"value": 0.011, "unit": "%"}) == []
+    assert check({"value": 1.2, "unit": "%"}) == ["form-not-in-text:s-1"]
+    assert check({"value": 1.1, "unit": "%"}, "A measured proportion is 1.1.") == ["form-not-in-text:s-1"]
+
+
 def test_verbatim_field_must_quote_the_text():
     """Test that a verbatim field that rephrases the text fails, the case the rule exists for."""
     result, claim, rests = typed_graph()

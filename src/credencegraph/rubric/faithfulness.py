@@ -17,6 +17,7 @@ _MINUS = "\N{MINUS SIGN}"
 _SIGNS = "+-" + _MINUS
 _GROUP = "(?:,|\N{THIN SPACE}|\N{NARROW NO-BREAK SPACE}|\\\\,)"
 _TIMES = "\N{MULTIPLICATION SIGN}"
+_ALPHANUMERIC = re.compile(r"[^\W_]")
 
 # A numeral: an optional sign that does not follow a word character or a dot, digits in groups of
 # three or plain, an optional fraction, an optional exponent (1.2e-3, 1.2 x 10^-3 written with a
@@ -80,7 +81,9 @@ def has_unit(text: str, unit: str) -> bool:
     r"""Tell whether a unit appears in a text as a token, delimited by whitespace or punctuation.
 
     The argument of ``\mathrm{…}``, ``\text{…}`` and ``\si{…}`` is delimited by its braces, so it
-    counts as a token too.
+    counts as a token too. A boundary is required only where the unit begins or ends with a letter
+    or digit: it keeps ``Hz`` from matching inside ``kHz`` or ``100Hz``, while a unit that starts
+    with punctuation, such as the ``%`` of ``1.1%``, is itself delimited from the numeral before it.
 
     Args:
         text: The text.
@@ -89,7 +92,9 @@ def has_unit(text: str, unit: str) -> bool:
     Returns:
         Whether the unit is a token of the text.
     """
-    return re.search(rf"(?<![^\W_]){re.escape(unit)}(?![^\W_])", text) is not None
+    before = r"(?<![^\W_])" if _ALPHANUMERIC.match(unit) else ""
+    after = r"(?![^\W_])" if _ALPHANUMERIC.match(unit[-1:]) else ""
+    return re.search(before + re.escape(unit) + after, text) is not None
 
 
 def has_eqref(text: str, label: str) -> bool:

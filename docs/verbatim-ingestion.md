@@ -191,7 +191,8 @@ string, must be found in it:
   that parses to the same float.
 - **Units** match a whitespace- or punctuation-delimited token of the text
   exactly; inside LaTeX, the argument of `\mathrm{…}`, `\text{…}` and `\si{…}`
-  counts as a token.
+  counts as a token. A unit needs a delimiter only on a side where it starts or
+  ends with a letter or digit, so the `%` of `1.1%` is a token.
 - **Equation references** match `\ref{v}`, `\eqref{v}`, `\cref{v}` or `\Cref{v}`
   for a label `v`, or `(v)` for a printed number `v`.
 
@@ -269,7 +270,12 @@ description = "A bibliography entry."
 [types.method]
 description = "What was done: a procedure, test or dataset."
 base = "beta:9,1"
-form.kind = { type = "enum", values = ["test", "simulation", "dataset", "procedure"], required = true }
+form.kind = { type = "enum", values = [
+  "test",
+  "simulation",
+  "dataset",
+  "procedure",
+], required = true }
 form.scope = { type = "scope" }
 
 [types.result]
@@ -277,7 +283,12 @@ description = "What was found."
 assess = true
 base = "beta:8,2"
 form.quantity = { type = "verbatim", required = true }
-form.trend = { type = "enum", values = ["vanishes", "increases", "decreases", "bounded"] }
+form.trend = { type = "enum", values = [
+  "vanishes",
+  "increases",
+  "decreases",
+  "bounded",
+] }
 form.value = { type = "quantity" }
 form.scope = { type = "scope" }
 
@@ -296,11 +307,22 @@ form.statement = { type = "verbatim", required = true }
 description = "A conclusion the document asserts."
 assess = true
 base = "beta:5,5"
-form.shape = { type = "enum", values = ["universal", "existential", "comparative", "bound"], required = true }
+form.shape = { type = "enum", values = [
+  "universal",
+  "existential",
+  "comparative",
+  "bound",
+], required = true }
 form.statement = { type = "verbatim", required = true }
 form.bound = { type = "number" }
 form.scope = { type = "scope" }
-rests_on = { types = ["result", "method", "derivation", "literature_claim", "assumption"], min = 1, relation = "requires", strength = "beta:9,1" }
+rests_on = { types = [
+  "result",
+  "method",
+  "derivation",
+  "literature_claim",
+  "assumption",
+], min = 1, relation = "requires", strength = "beta:9,1" }
 
 [types.assumption]
 description = "A premise taken without support, stated or implicit."
