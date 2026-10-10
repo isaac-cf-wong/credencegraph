@@ -29,6 +29,7 @@ from collections.abc import Mapping
 
 from credencegraph.core.credence import Credence
 from credencegraph.core.errors import ValidationError
+from credencegraph.core.relation import REQUIRES, SUPPORTS
 from credencegraph.diagnostics.records import (
     CRUX,
     FAILURE_IMPACT,
@@ -43,7 +44,7 @@ from credencegraph.diagnostics.records import (
 from credencegraph.inference.elimination import VariableElimination
 from credencegraph.inference.engine import Engine, Query
 from credencegraph.inference.errors import ZeroProbabilityError
-from credencegraph.semantics.network import PROPOSITION, Network, ParameterKey
+from credencegraph.semantics.network import PROPOSITION, Network, ParameterKey, Variable
 
 # A convention of this package, not something the model determines: a premise whose failure leaves the
 # target below a tenth of its own probability, an order of magnitude down, sinks it. The threshold is a
@@ -198,6 +199,44 @@ def _sd(credence: Credence) -> float:
     return math.sqrt(credence.variance)
 
 
+def _cancels(variable: Variable, key: ParameterKey, fixed: Mapping[int, bool]) -> bool:
+    """Decide from the relation semantics whether a parameter drops out of ``P(T | E)`` at one carrier.
+
+    Only the rows of the carrier's table that the fixed variables allow enter any joint probability,
+    and ``P(T | E)`` is a ratio of two of them in which the carrier's fixed value is the same. So the
+    parameter drops out when it is absent from every allowed row, or when the carrier is fixed true
+    and the parameter is a common factor of the allowed true entries (see ``cpt``):
+
+    - a strength is absent when its parent is fixed at the value that leaves its relation inactive,
+      true for ``requires`` and false for ``supports`` and ``refutes``;
+    - a ``requires`` or ``refutes`` strength whose parent is fixed is the constant factor 1 or
+      ``1 - strength`` of every allowed true entry;
+    - the base is a factor ``b`` of every allowed true entry when every ``supports`` parent is fixed
+      false, since ``O`` is then ``b``.
+
+    Args:
+        variable: A proposition variable that carries the parameter.
+        key: The parameter.
+        fixed: Variable indices fixed by evidence, interventions or ``exclusive`` constraints, and
+            their values; never the target, which the numerator and denominator fix differently.
+
+    Returns:
+        Whether the parameter cancels out of every joint probability through this variable.
+    """
+    true = fixed.get(variable.index) is True
+    if key.kind == "base":
+        return true and all(fixed.get(link.parent) is False for link in variable.links if link.type == SUPPORTS)
+    for link in variable.links:
+        if link.relation != key.id:
+            continue
+        parent = fixed.get(link.parent)
+        if parent is None:
+            return False
+        if parent is (link.type != REQUIRES) and not (true and link.type != SUPPORTS):
+            return False
+    return True
+
+
 def _depends(network: Network, target: str, evidence: Mapping[str, bool], key: ParameterKey) -> bool:
     """Decide from the structure alone whether ``P(target | evidence)`` can depend on a parameter.
 
@@ -205,7 +244,8 @@ def _depends(network: Network, target: str, evidence: Mapping[str, bool], key: P
     of that variable. ``P(T | E)`` cannot depend on it when that parent is d-separated from T given
     E and the ``exclusive`` constraints, which are observed true: the derivative is then exactly
     zero, whatever rounding an engine leaves in it. The trails are followed by the Bayes-ball rule,
-    over the parents left after interventions; an intervened variable's own parameters are unused.
+    over the parents left after interventions; an intervened variable's own parameters are unused,
+    and so are those of a carrier whose table the parameter cancels out of under E (``_cancels``).
 
     Args:
         network: The network.
@@ -221,7 +261,16 @@ def _depends(network: Network, target: str, evidence: Mapping[str, bool], key: P
         carriers = [v.index for v in network.variables if v.base == key.id]
     else:
         carriers = [v.index for v in network.variables if any(link.relation == key.id for link in v.links)]
-    carriers = [index for index in carriers if index not in network.interventions]
+    fixed = {
+        **{index: bool(value) for index, value in network.interventions.items()},
+        **{index: bool(value) for index, value in network.constraints.items()},
+        **{network.index(node_id): bool(value) for node_id, value in evidence.items()},
+    }
+    carriers = [
+        index
+        for index in carriers
+        if index not in network.interventions and not _cancels(network.variables[index], key, fixed)
+    ]
     children: dict[int, list[int]] = {index: [] for index in parents}
     for child, ups in parents.items():
         for parent in ups:
@@ -334,8 +383,9 @@ def crux_findings(
         One finding per parameter, largest crux first; or, when no parameter is both uncertain and
         one the target depends on, as when every parameter is a ``Point``, a single structural
         finding ``crux:<target>`` that says so instead of a ranking. Whether the target depends on a
-        parameter is read from the structure, by d-separation, not from the size of its derivative,
-        so rounding in the engine cannot decide between the two.
+        parameter is read from the structure, by d-separation and by the rows of its table that the
+        evidence leaves, not from the size of its derivative, so rounding in the engine cannot decide
+        between the two.
     """
     findings = []
     for key, slope in slopes.items():

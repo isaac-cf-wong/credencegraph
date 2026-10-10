@@ -190,6 +190,44 @@ def test_crux_through_an_observed_common_effect(engine):
 
 
 @pytest.mark.parametrize("engine", ENGINES)
+def test_crux_when_evidence_leaves_a_requires_strength_inactive(engine):
+    """Test that a strength the observed parent switches off gets the structural finding.
+
+    A requires T with a Beta strength r, so P(T | A) = t if A else (1 - r) t. Observing A true leaves
+    P(T | A) = t: r is d-connected to T, its own parent, but its derivative is exactly zero. Leaving
+    A unobserved, r is ranked with a crux above zero.
+    """
+    graph = Graph()
+    graph.add_node(Node("A", base=0.6))
+    graph.add_node(Node("T", base=0.3))
+    graph.add_relation(Relation("AT", "requires", "A", "T", strength=Beta(2, 2)))
+    network = compile_graph(graph)
+    findings = crux(network, "T", evidence={"A": True}, engine=engine)
+    assert [(f.id, f.value) for f in findings] == [("crux:T", None)]
+    assert by_id(crux(network, "T", engine=engine))["crux:strength:AT"].value > 0.0
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_crux_when_an_observed_child_cancels_its_base(engine):
+    """Test that a base that cancels out of the observed child's likelihood gets the structural finding.
+
+    T refutes X with strength f, and X has a Beta base x, so P(X | T) = x (1 - f)^T. Observing X true,
+    P(T | X) = p (1 - f) / (p (1 - f) + 1 - p): x cancels, though it is d-connected to T through the
+    observed X. Observing X false, P(X = 0 | T) = 1 - x (1 - f)^T does not cancel it, and x is ranked.
+    """
+    graph = Graph()
+    graph.add_node(Node("T", base=0.4))
+    graph.add_node(Node("X", base=Beta(2, 3)))
+    graph.add_relation(Relation("TX", "refutes", "T", "X", strength=0.7))
+    network = compile_graph(graph)
+    findings = crux(network, "T", evidence={"X": True}, engine=engine)
+    assert [(f.id, f.value) for f in findings] == [("crux:T", None)]
+    findings = crux(network, "T", evidence={"X": False}, engine=engine)
+    assert findings[0].id == "crux:base:X"
+    assert findings[0].value > 0.0
+
+
+@pytest.mark.parametrize("engine", ENGINES)
 class TestSinglePointOfFailure:
     """P(T | do(A = 0)) = (1 - r) H and P(T | do(B = 0)) = G t, against P(T) = G H.
 
