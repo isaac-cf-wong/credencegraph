@@ -144,6 +144,51 @@ def test_crux_with_every_parameter_a_point(engine):
     close(by_id(sensitivity(network, "T", engine=engine))["sensitivity:base:Y"].value, 0.81)
 
 
+def test_crux_with_the_only_uncertain_parameter_disconnected():
+    """Test that a Beta the target cannot depend on gets the structural finding under every engine.
+
+    T's only parent Y is a plain number, and the one Beta, the base of Z, sits in a separate
+    component Z -> W, so dP(T)/d base(Z) is exactly zero. Enumeration leaves about 6e-18 of rounding
+    in it and variable elimination none; the finding must not depend on which.
+    """
+    graph = Graph()
+    graph.add_node(Node("Y", base=0.2))
+    graph.add_node(Node("T", base=0.2))
+    graph.add_node(Node("Z", base=Beta(2, 3)))
+    graph.add_node(Node("W", base=0.2))
+    graph.add_relation(Relation("YT", "requires", "Y", "T", strength=0.2))
+    graph.add_relation(Relation("ZW", "supports", "Z", "W", strength=0.5))
+    network = compile_graph(graph)
+    outputs = [
+        [(f.id, f.diagnostic, f.nodes, f.value) for f in crux(network, "T", engine=engine)]
+        for engine in (VariableElimination(), Enumeration())
+    ]
+    assert outputs == [[("crux:T", CRUX, ("T",), None)]] * 2
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_crux_through_an_observed_common_effect(engine):
+    """Test that observing a common effect makes the target depend on the other cause's Beta.
+
+    Z and M both support C, and M supports T. Unobserved, C blocks the only trail from Z to T and the
+    structural finding is returned; observing C opens it, and the base of Z is ranked with a crux
+    above zero.
+    """
+    graph = Graph()
+    graph.add_node(Node("M", base=0.5))
+    graph.add_node(Node("T", base=0.2))
+    graph.add_node(Node("Z", base=Beta(2, 3)))
+    graph.add_node(Node("C", base=0.1))
+    graph.add_relation(Relation("MT", "supports", "M", "T", strength=0.6))
+    graph.add_relation(Relation("ZC", "supports", "Z", "C", strength=0.7))
+    graph.add_relation(Relation("MC", "supports", "M", "C", strength=0.7))
+    network = compile_graph(graph)
+    assert [f.id for f in crux(network, "T", engine=engine)] == ["crux:T"]
+    findings = crux(network, "T", evidence={"C": True}, engine=engine)
+    assert findings[0].id == "crux:base:Z"
+    assert findings[0].value > 0.0
+
+
 @pytest.mark.parametrize("engine", ENGINES)
 class TestSinglePointOfFailure:
     """P(T | do(A = 0)) = (1 - r) H and P(T | do(B = 0)) = G t, against P(T) = G H.

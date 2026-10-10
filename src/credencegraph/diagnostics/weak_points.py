@@ -198,6 +198,63 @@ def _sd(credence: Credence) -> float:
     return math.sqrt(credence.variance)
 
 
+def _depends(network: Network, target: str, evidence: Mapping[str, bool], key: ParameterKey) -> bool:
+    """Decide from the structure alone whether ``P(target | evidence)`` can depend on a parameter.
+
+    A parameter enters only the table of the variable that carries it, so it acts as one more parent
+    of that variable. ``P(T | E)`` cannot depend on it when that parent is d-separated from T given
+    E and the ``exclusive`` constraints, which are observed true: the derivative is then exactly
+    zero, whatever rounding an engine leaves in it. The trails are followed by the Bayes-ball rule,
+    over the parents left after interventions; an intervened variable's own parameters are unused.
+
+    Args:
+        network: The network.
+        target: The id of the target node.
+        evidence: Node ids and their observed values.
+        key: The parameter.
+
+    Returns:
+        Whether the target is d-connected to the parameter.
+    """
+    parents = {v.index: () if v.index in network.interventions else v.parents for v in network.variables}
+    if key.kind == "base":
+        carriers = [v.index for v in network.variables if v.base == key.id]
+    else:
+        carriers = [v.index for v in network.variables if any(link.relation == key.id for link in v.links)]
+    carriers = [index for index in carriers if index not in network.interventions]
+    children: dict[int, list[int]] = {index: [] for index in parents}
+    for child, ups in parents.items():
+        for parent in ups:
+            children[parent].append(child)
+    observed = set(network.constraints) | {network.index(node_id) for node_id in evidence}
+    # A collider passes a trail when it or one of its descendants is observed: when it is an
+    # ancestor of the observed variables, counting each as its own ancestor.
+    opens, stack = set(), list(observed)
+    while stack:
+        index = stack.pop()
+        if index not in opens:
+            opens.add(index)
+            stack.extend(parents[index])
+    goal = network.index(target)
+    # Each entry is a variable and whether the trail reached it from a parent, as the parameter does.
+    stack = [(index, True) for index in carriers]
+    seen: set[tuple[int, bool]] = set()
+    while stack:
+        index, downward = stack.pop()
+        if (index, downward) in seen:
+            continue
+        seen.add((index, downward))
+        if index == goal:
+            return True
+        if index not in observed:
+            stack.extend((child, True) for child in children[index])
+            if not downward:
+                stack.extend((parent, False) for parent in parents[index])
+        if downward and index in opens:
+            stack.extend((parent, False) for parent in parents[index])
+    return False
+
+
 def _ranked(findings: list[Finding]) -> list[Finding]:
     """Sort findings by the magnitude of their value, largest first; ties keep their order.
 
@@ -274,9 +331,11 @@ def crux_findings(
         evidence: The evidence the derivatives were taken under, named in the messages.
 
     Returns:
-        One finding per parameter, largest crux first; or, when every crux is zero because no
-        parameter is both uncertain and one the target depends on, as when every parameter is a
-        ``Point``, a single structural finding ``crux:<target>`` that says so instead of a ranking.
+        One finding per parameter, largest crux first; or, when no parameter is both uncertain and
+        one the target depends on, as when every parameter is a ``Point``, a single structural
+        finding ``crux:<target>`` that says so instead of a ranking. Whether the target depends on a
+        parameter is read from the structure, by d-separation, not from the size of its derivative,
+        so rounding in the engine cannot decide between the two.
     """
     findings = []
     for key, slope in slopes.items():
@@ -297,7 +356,7 @@ def crux_findings(
                 details={"derivative": slope, "sd": sd},
             )
         )
-    if not any(finding.value for finding in findings):
+    if not any(_sd(network.parameters[key]) > 0.0 and _depends(network, target, evidence or {}, key) for key in slopes):
         return [
             Finding(
                 id=f"{CRUX}:{target}",
