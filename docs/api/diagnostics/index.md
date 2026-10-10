@@ -24,8 +24,14 @@ Every diagnostic returns a list of `Finding` records. A finding has an `id`
 When no parameter T depends on is uncertain, as in a graph of plain numbers,
 every crux is zero; `crux` then returns a single finding `crux:<target>`, with
 no value, that says so instead of ranking the zeros. Whether T depends on a
-parameter is decided from the graph, by d-separation, so every engine gives the
-same answer.
+parameter is decided from the network, not from the size of a derivative, so
+every engine gives the same answer: θ does not count when it is d-separated from
+T given the evidence, or when it cancels out of its own table, in the rows the
+evidence leaves, in exact arithmetic (a `requires` strength whose premise is
+observed true, the base of an observed-true child whose supports are all
+observed, a base multiplied by a `requires` strength of exactly 1 whose premise
+is observed false). A derivative that is zero only because contributions through
+different tables cancel is not detected, and θ is then still ranked.
 
 `diagnose(graph, target)` runs them all. If a parameter is missing the graph
 cannot be compiled, and the report stops after the structural checks.
