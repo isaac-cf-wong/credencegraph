@@ -134,8 +134,13 @@ def test_annotations_never_change_a_credence(seed):
         annotated.add_relation(Relation(f"note{k}", rtype, source, target))
     before, after = compile_graph(plain), compile_graph(annotated)
     ids = proposition_ids(plain)
-    for node_id in ids:
-        assert marginal(after, node_id, draws=0).point == marginal(before, node_id, draws=0).point
+    try:
+        points = [marginal(before, node_id, draws=0).point for node_id in ids]
+    except ZeroProbabilityError:  # exclusive constraints that no assignment satisfies
+        reject()
+    else:
+        for node_id, point in zip(ids, points, strict=True):
+            assert marginal(after, node_id, draws=0).point == point
     evidence = random_assignment(rng, ids, 3)
     target = {ids[int(rng.integers(0, len(ids)))]: True}
     try:
