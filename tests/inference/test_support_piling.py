@@ -142,4 +142,5 @@ def test_annotations_never_change_a_credence(seed):
         expected = conditional(before, target, evidence, draws=0).point
     except (ZeroProbabilityError, ValidationError):  # impossible evidence, or a target it contradicts
         reject()
-    assert conditional(after, target, evidence, draws=0).point == expected
+    else:
+        assert conditional(after, target, evidence, draws=0).point == expected
