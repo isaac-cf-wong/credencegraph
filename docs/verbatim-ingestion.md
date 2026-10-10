@@ -132,7 +132,8 @@ checks recompute with them.
 Each typed node has exactly one type from the rubric. Two types are built in and
 may not be declared by a rubric:
 
-- `unassigned`: not yet classified. Allowed only on document nodes.
+- `unassigned`: not yet classified. Allowed only on document nodes. A node is
+  reset to it with `annotate NODE --type unassigned`.
 - `compound`: a document chunk that does more than one thing. It keeps its text
   and anchor but carries no `form`, no `assessment` and no `base`, and is an
   endpoint of no inferential relation. Its **children** carry the content.
@@ -489,14 +490,15 @@ What the commands guarantee:
   that is already a compound adds children to it. A node with a `form`, an
   `assessment` or a `base` cannot be split; `annotate NODE --type unassigned`
   removes all three along with its type.
-- `annotate` validates each write: `--type` must be declared and allowed for the
-  node's origin, `--set` names a declared field and its value (parsed as JSON,
-  else taken as a string) must have the field type and pass faithfulness.
-  Missing required fields are allowed, since they are filled one at a time;
-  `check --level typed` reports them. Assigning a type with a `base` sets that
-  base when the node has none. `--rests-on ID` adds the edge rule's relation
-  from `ID` with the rule's strength. `--verdict` sets `holds`, `fails` or
-  `undetermined`.
+- `annotate` validates each write: `--type` must be declared, or be the built-in
+  `unassigned`, which needs no declaration and resets the node; either way it
+  must be allowed for the node's origin. `--set` names a declared field and its
+  value (parsed as JSON, else taken as a string) must have the field type and
+  pass faithfulness. Missing required fields are allowed, since they are filled
+  one at a time; `check --level typed` reports them. Assigning a type with a
+  `base` sets that base when the node has none. `--rests-on ID` adds the edge
+  rule's relation from `ID` with the rule's strength. `--verdict` sets `holds`,
+  `fails` or `undetermined`.
 - Every command follows the existing conventions: `--json` output, exit status 1
   on failure (`cli/common.py:1-7`), and a file that is replaced in one step only
   when the write succeeds (`write_graph`, `cli/common.py:317-345`).
