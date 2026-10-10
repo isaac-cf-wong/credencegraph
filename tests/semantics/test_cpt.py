@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import itertools
+from fractions import Fraction
+
 import numpy as np
 import pytest
 
 from credencegraph.semantics import Term, exclusion_table, proposition_table
+from credencegraph.semantics.cpt import true_probability
 
 
 def close(actual, expected):
@@ -79,6 +83,36 @@ class TestPropositionTable:
             proposition_table(0.5, [Term(0, "cites", 0.5)], 1)
         with pytest.raises(ValueError, match="out of range"):
             proposition_table(0.5, [Term(1, "supports", 0.5)], 1)
+
+
+class TestTrueProbability:
+    """The one-row form of the proposition table, which the diagnostics evaluate exactly."""
+
+    TERMS = (
+        Term(0, "requires", 0.75),
+        Term(1, "supports", 0.5),
+        Term(2, "refutes", 0.9),
+        Term(1, "supports", 0.2),
+        Term(0, "requires", 1.0),
+    )
+
+    def test_matches_the_table(self):
+        """Test that every row agrees with ``proposition_table``, so the two forms cannot drift."""
+        table = proposition_table(0.3, self.TERMS, 3)
+        for parents in itertools.product((0, 1), repeat=3):
+            close(true_probability(0.3, self.TERMS, parents), table[(*parents, 1)])
+
+    def test_is_exact_on_fractions(self):
+        """Test that rational inputs give the exact rational entry, with no rounding."""
+        terms = [
+            Term(0, "requires", Fraction(3, 4)),
+            Term(1, "supports", Fraction(1, 2)),
+            Term(2, "refutes", Fraction(9, 10)),
+            Term(1, "supports", Fraction(1, 5)),
+        ]
+        # N = 1 - 3/4, O = 1 - (1 - 3/10)(1 - 1/2)(1 - 1/5), I = 1 - 9/10 at A = 0, S = 1, F = 1.
+        expected = Fraction(1, 4) * (1 - Fraction(7, 10) * Fraction(1, 2) * Fraction(4, 5)) * Fraction(1, 10)
+        assert true_probability(Fraction(3, 10), terms, (0, 1, 1)) == expected
 
 
 class TestExclusionTable:

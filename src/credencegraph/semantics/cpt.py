@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from numbers import Real
 
 import numpy as np
 
@@ -82,6 +83,33 @@ def proposition_table(base: float, terms: Sequence[Term], n_parents: int) -> np.
     sufficiency = base * no_support + (1.0 - no_support)
     true = necessity * sufficiency * inhibition
     return np.stack([1.0 - true, true], axis=-1)
+
+
+def true_probability(base: Real, terms: Sequence[Term], parents: Sequence[int]) -> Real:
+    """Evaluate ``P(X = 1 | parents)`` for one assignment of the parents.
+
+    The same formula as ``proposition_table``, one row at a time and in whatever arithmetic the
+    numbers bring: given ``Fraction`` values it is exact, which the diagnostics use to decide whether
+    a parameter cancels out of a table without any rounding.
+
+    Args:
+        base: The base probability ``b``.
+        terms: The inferential relations into the child; ``Term.strength`` in the same arithmetic.
+        parents: The value, 0 or 1, of each parent axis.
+
+    Returns:
+        ``N * O * I`` at that assignment.
+    """
+    necessity = no_support = inhibition = 1
+    for term in terms:
+        value = parents[term.parent]
+        if term.type == REQUIRES and value == 0:
+            necessity *= 1 - term.strength
+        elif term.type == SUPPORTS and value == 1:
+            no_support *= 1 - term.strength
+        elif term.type == REFUTES and value == 1:
+            inhibition *= 1 - term.strength
+    return necessity * (base * no_support + (1 - no_support)) * inhibition
 
 
 def exclusion_table(n_parents: int) -> np.ndarray:

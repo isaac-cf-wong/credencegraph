@@ -24,12 +24,13 @@ the value θ holds. With no evidence and no constraint, D is 1 and this is the t
 
 from __future__ import annotations
 
+import itertools
 import math
 from collections.abc import Mapping
+from fractions import Fraction
 
 from credencegraph.core.credence import Credence
 from credencegraph.core.errors import ValidationError
-from credencegraph.core.relation import REQUIRES, SUPPORTS
 from credencegraph.diagnostics.records import (
     CRUX,
     FAILURE_IMPACT,
@@ -44,6 +45,7 @@ from credencegraph.diagnostics.records import (
 from credencegraph.inference.elimination import VariableElimination
 from credencegraph.inference.engine import Engine, Query
 from credencegraph.inference.errors import ZeroProbabilityError
+from credencegraph.semantics.cpt import Term, true_probability
 from credencegraph.semantics.network import PROPOSITION, Network, ParameterKey, Variable
 
 # A convention of this package, not something the model determines: a premise whose failure leaves the
@@ -199,22 +201,22 @@ def _sd(credence: Credence) -> float:
     return math.sqrt(credence.variance)
 
 
-def _cancels(variable: Variable, key: ParameterKey, fixed: Mapping[int, bool]) -> bool:
-    """Decide from the relation semantics whether a parameter drops out of ``P(T | E)`` at one carrier.
+def _cancels(network: Network, variable: Variable, key: ParameterKey, fixed: Mapping[int, bool]) -> bool:
+    """Decide exactly whether a parameter cancels out of ``P(T | E)`` through one carrier's table.
 
     Only the rows of the carrier's table that the fixed variables allow enter any joint probability,
-    and ``P(T | E)`` is a ratio of two of them in which the carrier's fixed value is the same. So the
-    parameter drops out when it is absent from every allowed row, or when the carrier is fixed true
-    and the parameter is a common factor of the allowed true entries (see ``cpt``):
-
-    - a strength is absent when its parent is fixed at the value that leaves its relation inactive,
-      true for ``requires`` and false for ``supports`` and ``refutes``;
-    - a ``requires`` or ``refutes`` strength whose parent is fixed is the constant factor 1 or
-      ``1 - strength`` of every allowed true entry;
-    - the base is a factor ``b`` of every allowed true entry when every ``supports`` parent is fixed
-      false, since ``O`` is then ``b``.
+    and ``P(T | E)`` is a ratio of two of them that fix the carrier alike. Each entry is a line
+    ``alpha + beta * theta`` in the parameter. The parameter cancels when, over the allowed rows, the
+    entries in play are one function of it up to a factor free of it: then that function multiplies
+    numerator and denominator alike. With the carrier fixed, that is its fixed column, and the
+    nonzero ``(alpha, beta)`` must all be proportional; with it free, both columns, which sum to 1,
+    so every ``beta`` must be zero. This covers a parameter switched off by its parent's value, a
+    common factor of the observed entries, and a parameter multiplied by an exact zero, as a
+    ``requires`` strength of exactly 1 with its premise observed false. The coefficients are taken in
+    exact rational arithmetic from the parameters' values, so no rounding enters the decision.
 
     Args:
+        network: The network.
         variable: A proposition variable that carries the parameter.
         key: The parameter.
         fixed: Variable indices fixed by evidence, interventions or ``exclusive`` constraints, and
@@ -223,16 +225,36 @@ def _cancels(variable: Variable, key: ParameterKey, fixed: Mapping[int, bool]) -
     Returns:
         Whether the parameter cancels out of every joint probability through this variable.
     """
-    true = fixed.get(variable.index) is True
-    if key.kind == "base":
-        return true and all(fixed.get(link.parent) is False for link in variable.links if link.type == SUPPORTS)
-    for link in variable.links:
-        if link.relation != key.id:
+    values = {k: Fraction(v) for k, v in network.values.items()}
+
+    def entries(theta: int, parents: list[int]) -> Fraction:
+        given = {**values, key: Fraction(theta)}
+        terms = [
+            Term(variable.parents.index(link.parent), link.type, given[ParameterKey("strength", link.relation)])
+            for link in variable.links
+        ]
+        return true_probability(given[ParameterKey("base", variable.base or "")], terms, parents)
+
+    column = fixed.get(variable.index)
+    free = [axis for axis, parent in enumerate(variable.parents) if parent not in fixed]
+    direction: tuple[Fraction, Fraction] | None = None
+    for assignment in itertools.product((0, 1), repeat=len(free)):
+        parents = [int(fixed.get(parent, False)) for parent in variable.parents]
+        for axis, value in zip(free, assignment, strict=True):
+            parents[axis] = value
+        low, high = entries(0, parents), entries(1, parents)
+        if column is None:
+            if high != low:
+                return False
             continue
-        parent = fixed.get(link.parent)
-        if parent is None:
-            return False
-        if parent is (link.type != REQUIRES) and not (true and link.type != SUPPORTS):
+        if column is False:
+            low, high = 1 - low, 1 - high
+        alpha, beta = low, high - low
+        if alpha == 0 and beta == 0:
+            continue
+        if direction is None:
+            direction = (alpha, beta)
+        elif alpha * direction[1] != beta * direction[0]:
             return False
     return True
 
@@ -269,7 +291,7 @@ def _depends(network: Network, target: str, evidence: Mapping[str, bool], key: P
     carriers = [
         index
         for index in carriers
-        if index not in network.interventions and not _cancels(network.variables[index], key, fixed)
+        if index not in network.interventions and not _cancels(network, network.variables[index], key, fixed)
     ]
     children: dict[int, list[int]] = {index: [] for index in parents}
     for child, ups in parents.items():
@@ -382,10 +404,12 @@ def crux_findings(
     Returns:
         One finding per parameter, largest crux first; or, when no parameter is both uncertain and
         one the target depends on, as when every parameter is a ``Point``, a single structural
-        finding ``crux:<target>`` that says so instead of a ranking. Whether the target depends on a
-        parameter is read from the structure, by d-separation and by the rows of its table that the
-        evidence leaves, not from the size of its derivative, so rounding in the engine cannot decide
-        between the two.
+        finding ``crux:<target>`` that says so instead of a ranking. A parameter counts as one the
+        target does not depend on when it is d-separated from it, or when it cancels out of its own
+        table under the evidence, decided in exact arithmetic; both are read from the network, not
+        from the size of its derivative, so rounding in the engine cannot decide between the two. A
+        derivative that is zero only because contributions through different tables cancel is not
+        detected, and that parameter is still ranked.
     """
     findings = []
     for key, slope in slopes.items():
