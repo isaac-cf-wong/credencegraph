@@ -27,6 +27,7 @@ from __future__ import annotations
 import itertools
 import math
 from collections.abc import Mapping
+from dataclasses import dataclass
 from fractions import Fraction
 
 from credencegraph.core.credence import Credence
@@ -521,23 +522,49 @@ def _others(network: Network, target: str, evidence: Mapping[str, bool]) -> list
     return [(v.name, v.members) for v in network.variables if v.kind == PROPOSITION and v.index not in skipped]
 
 
-def _failures(
-    network: Network, target: str, evidence: Mapping[str, bool] | None, threshold: float, engine: Engine | None
-) -> tuple[Query, float, float, float, list[tuple[str, tuple[str, ...], float]]]:
+@dataclass(frozen=True, slots=True)
+class Interventions:
+    """The failure of each other variable in turn, shared by the single-point-of-failure diagnostics.
+
+    Attributes:
+        target: The id of the target node.
+        query: The query for ``P(target | evidence)``.
+        threshold: The fraction of ``P(target | evidence)`` below which the target counts as failed.
+        baseline: ``P(target | evidence)``.
+        cutoff: The probability a failed target must fall below to count as a single point of failure.
+        failures: The name, member node ids and ``P(target | do(Y = false), evidence)`` of each
+            candidate Y, in network order. A variable whose failure the evidence rules out is not a
+            candidate.
+    """
+
+    target: str
+    query: Query
+    threshold: float
+    baseline: float
+    cutoff: float
+    failures: tuple[tuple[str, tuple[str, ...], float], ...]
+
+
+def interventions(
+    network: Network,
+    target: str,
+    *,
+    evidence: Mapping[str, bool] | None = None,
+    threshold: float = DEFAULT_FAILURE_THRESHOLD,
+    engine: Engine | None = None,
+) -> Interventions:
     """Fail each other variable in turn, for ``single_points_of_failure`` and ``failure_impact``.
 
     Args:
         network: The network.
         target: The id of the target node.
-        evidence: Node ids and their observed values, or ``None`` for none.
+        evidence: Node ids and their observed values; none by default.
         threshold: The fraction of ``P(target | evidence)`` below which the target counts as failed.
-        engine: The exact engine, or ``None`` for variable elimination.
+        engine: The exact engine; variable elimination by default.
 
     Returns:
-        The query, the threshold, ``P(target | evidence)``, the cutoff a failed probability must fall
-        below to count as a single point of failure, and the name, member node ids and
-        ``P(target | do(Y = false), evidence)`` of each candidate Y, in network order. A variable
-        whose failure the evidence rules out is not a candidate.
+        The pass, from which ``single_point_of_failure_findings`` and ``failure_impact_findings``
+        both derive their findings.
 
     Raises:
         ValidationError: If ``threshold`` is not in [0, 1], ``target`` or an evidence node is not an
@@ -564,7 +591,72 @@ def _failures(
             engine.query(failed, Query({target: True}))
             continue
         failures.append((name, members, value))
-    return query, limit, baseline, cutoff, failures
+    return Interventions(target, query, limit, baseline, cutoff, tuple(failures))
+
+
+def single_point_of_failure_findings(run: Interventions) -> list[Finding]:
+    """Turn the interventions into single-point-of-failure findings.
+
+    Args:
+        run: The interventions, from ``interventions``.
+
+    Returns:
+        The findings of ``single_points_of_failure``, lowest remaining probability first.
+    """
+    probability = _probability(run.target, run.query.evidence)
+    findings = [
+        Finding(
+            id=f"{SINGLE_POINT_OF_FAILURE}:{name}",
+            diagnostic=SINGLE_POINT_OF_FAILURE,
+            message=f"if {name!r} is false, {probability} falls from {run.baseline:.3g} to {value:.3g}",
+            nodes=members,
+            value=value,
+            details={"baseline": run.baseline, "threshold": run.threshold},
+        )
+        for name, members, value in run.failures
+        if value < run.cutoff
+    ]
+    return sorted(findings, key=lambda finding: finding.value or 0.0)
+
+
+def failure_impact_findings(run: Interventions) -> list[Finding]:
+    """Turn the interventions into the failure-impact ranking.
+
+    Args:
+        run: The interventions, from ``interventions``.
+
+    Returns:
+        The findings of ``failure_impact``, lowest ratio first; none when ``P(target | evidence)`` is
+        zero.
+    """
+    baseline = run.baseline
+    if baseline <= 0.0:
+        return []
+    probability = _probability(run.target, run.query.evidence)
+    findings = []
+    for name, members, value in run.failures:
+        ratio = value / baseline
+        fatal = value < run.cutoff
+        findings.append(
+            Finding(
+                id=f"{FAILURE_IMPACT}:{name}",
+                diagnostic=FAILURE_IMPACT,
+                message=(
+                    f"if {name!r} is false, {probability} keeps {ratio:.3g} of its value, "
+                    f"{baseline:.3g} to {value:.3g}"
+                    + (f"; below the threshold {run.threshold:.3g}, a single point of failure" if fatal else "")
+                ),
+                nodes=members,
+                value=ratio,
+                details={
+                    "baseline": baseline,
+                    "p_target_if_false": value,
+                    "threshold": run.threshold,
+                    "single_point_of_failure": fatal,
+                },
+            )
+        )
+    return sorted(findings, key=lambda finding: finding.value or 0.0)
 
 
 def single_points_of_failure(
@@ -626,22 +718,8 @@ def single_points_of_failure(
         ZeroProbabilityError: If the evidence and the ``exclusive`` constraints have probability zero,
             or the constraints alone do under one of the interventions.
     """
-    query, limit, baseline, cutoff, failures = _failures(network, target, evidence, threshold, engine)
-    findings = [
-        Finding(
-            id=f"{SINGLE_POINT_OF_FAILURE}:{name}",
-            diagnostic=SINGLE_POINT_OF_FAILURE,
-            message=(
-                f"if {name!r} is false, {_probability(target, query.evidence)} falls from {baseline:.3g} to {value:.3g}"
-            ),
-            nodes=members,
-            value=value,
-            details={"baseline": baseline, "threshold": limit},
-        )
-        for name, members, value in failures
-        if value < cutoff
-    ]
-    return sorted(findings, key=lambda finding: finding.value or 0.0)
+    run = interventions(network, target, evidence=evidence, threshold=threshold, engine=engine)
+    return single_point_of_failure_findings(run)
 
 
 def failure_impact(
@@ -685,33 +763,8 @@ def failure_impact(
         ZeroProbabilityError: If the evidence and the ``exclusive`` constraints have probability zero,
             or the constraints alone do under one of the interventions.
     """
-    query, limit, baseline, cutoff, failures = _failures(network, target, evidence, threshold, engine)
-    if baseline <= 0.0:
-        return []
-    findings = []
-    for name, members, value in failures:
-        ratio = value / baseline
-        fatal = value < cutoff
-        findings.append(
-            Finding(
-                id=f"{FAILURE_IMPACT}:{name}",
-                diagnostic=FAILURE_IMPACT,
-                message=(
-                    f"if {name!r} is false, {_probability(target, query.evidence)} keeps {ratio:.3g} of its value, "
-                    f"{baseline:.3g} to {value:.3g}"
-                    + (f"; below the threshold {limit:.3g}, a single point of failure" if fatal else "")
-                ),
-                nodes=members,
-                value=ratio,
-                details={
-                    "baseline": baseline,
-                    "p_target_if_false": value,
-                    "threshold": limit,
-                    "single_point_of_failure": fatal,
-                },
-            )
-        )
-    return sorted(findings, key=lambda finding: finding.value or 0.0)
+    run = interventions(network, target, evidence=evidence, threshold=threshold, engine=engine)
+    return failure_impact_findings(run)
 
 
 def _mutual_information(table: list[list[float]]) -> float:
