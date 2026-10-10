@@ -10,7 +10,7 @@ from credencegraph.core.node import DEFAULT_KIND
 from credencegraph.diagnostics import DEFAULT_CLAIM_THRESHOLD, DEFAULT_FAILURE_THRESHOLD
 from credencegraph.inference import DEFAULT_DRAWS
 
-COMMANDS = ("version", "init", "add-node", "relate", "query", "diagnose", "check")
+COMMANDS = ("version", "init", "add-node", "relate", "query", "diagnose", "check", "coverage", "split", "annotate")
 
 
 @pytest.fixture(scope="module")
@@ -68,6 +68,9 @@ def test_graph_path_is_the_first_argument(group, name):
         ("query", ["path", "kind", "targets"]),
         ("diagnose", ["path"]),
         ("check", ["path"]),
+        ("coverage", ["path"]),
+        ("split", ["path", "node"]),
+        ("annotate", ["path", "node"]),
         ("version", []),
     ],
 )
@@ -97,6 +100,17 @@ def test_positional_arguments(group, name, arguments):
         ("diagnose", "targets", ["--targets"], (False, False)),
         ("diagnose", "claim_threshold", ["--claim-threshold"], (False, False)),
         ("diagnose", "failure_threshold", ["--failure-threshold"], (False, False)),
+        ("check", "rubric", ["--rubric"], (False, False)),
+        ("check", "level", ["--level"], (False, False)),
+        ("coverage", "rubric", ["--rubric"], (True, False)),
+        ("split", "at", ["--at"], (False, True)),
+        ("split", "fields", ["--fields"], (False, False)),
+        ("annotate", "rubric", ["--rubric"], (True, False)),
+        ("annotate", "node_type", ["--type"], (False, False)),
+        ("annotate", "setting", ["--set"], (False, True)),
+        ("annotate", "rests_on", ["--rests-on"], (False, True)),
+        ("annotate", "verdict", ["--verdict"], (False, False)),
+        ("annotate", "not_assessed", ["--not-assessed"], (False, False)),
     ],
 )
 def test_options(group, name, option, opts, flags):

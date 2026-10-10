@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import math
+import re
 
 import pytest
 
 from credencegraph.core import Beta, Point, ValidationError, as_credence
+from credencegraph.core.credence import parse_credence
 
 
 class TestPoint:
@@ -116,3 +118,29 @@ class TestAsCredence:
         """Test that out-of-range floats, booleans and strings are rejected."""
         with pytest.raises(ValidationError):
             as_credence(value)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [("0.3", Point(0.3)), ("1", Point(1.0)), ("beta:8,2", Beta(8, 2)), ("Beta: 8, 2", Beta(8, 2))],
+)
+def test_parse_credence(text, expected):
+    """Test the two written forms of a credence."""
+    assert parse_credence(text) == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ("x", "'x' is not a credence"),
+        ("beta:1", "'beta:1' is not a credence"),
+        ("beta:1,2,3", "'beta:1,2,3' is not a credence"),
+        ("point:0.3", "'point:0.3' is not a credence"),
+        ("1.5", "'1.5': Point.p must lie in"),
+        ("beta:0,2", "'beta:0,2': Beta.alpha must be > 0"),
+    ],
+)
+def test_parse_credence_errors(text, message):
+    """Test that malformed text and out-of-range numbers are told apart in the message."""
+    with pytest.raises(ValidationError, match=re.escape(message)):
+        parse_credence(text)

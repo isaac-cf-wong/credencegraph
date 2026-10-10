@@ -175,3 +175,44 @@ def as_credence(value: Credence | float) -> Credence:
     if isinstance(value, Beta | Point):
         return value
     return Point(value)
+
+
+def parse_credence(text: str) -> Credence:
+    """Parse a credence written as text: a bare probability is a ``Point``, ``beta:A,B`` a ``Beta``.
+
+    This is the syntax of the command line and of rubric files.
+
+    Args:
+        text: The text, such as ``0.3`` or ``beta:8,2``.
+
+    Returns:
+        The credence.
+
+    Raises:
+        ValidationError: If the text is neither form, or its numbers are out of range. The message
+            starts with the text, quoted.
+    """
+    kind, colon, rest = text.partition(":")
+    numbers: list[float] | None = None
+    if not colon:
+        numbers = _floats([text])
+    elif kind.strip().lower() == "beta":
+        numbers = _floats(rest.split(","))
+    try:
+        if numbers is not None and len(numbers) == 1 and not colon:
+            return Point(numbers[0])
+        if numbers is not None and len(numbers) == 2 and colon:  # noqa: PLR2004 - the two shape parameters
+            return Beta(*numbers)
+    except ValidationError as error:
+        msg = f"{text!r}: {error}"
+        raise ValidationError(msg) from None
+    msg = f"{text!r} is not a credence"
+    raise ValidationError(msg)
+
+
+def _floats(parts: list[str]) -> list[float] | None:
+    """Parse each part as a float, or return ``None`` if one is not a number."""
+    try:
+        return [float(part) for part in parts]
+    except ValueError:
+        return None
