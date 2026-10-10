@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import math
+import sys
+from fractions import Fraction
 
 import pytest
 
@@ -57,6 +59,23 @@ class TestBeta:
         assert b.concentration == 8.0
         assert b.mean == 0.25
         assert b.variance == pytest.approx(2 * 6 / (8**2 * 9), rel=1e-15)
+
+    @pytest.mark.parametrize(
+        ("alpha", "beta"),
+        [
+            (sys.float_info.max, sys.float_info.max),
+            (sys.float_info.max, 1e308),
+            (1e308, sys.float_info.max),
+            (1.5 * 2.0**1023, 0.5 * 2.0**1023),
+        ],
+    )
+    def test_mean_when_concentration_overflows(self, alpha, beta):
+        """Test that the mean stays exact when ``alpha + beta`` overflows to infinity."""
+        b = Beta(alpha, beta)
+        assert math.isinf(alpha + beta)
+        exact = float(Fraction(alpha) / (Fraction(alpha) + Fraction(beta)))
+        assert b.mean == pytest.approx(exact, rel=1e-15, abs=0.0)
+        assert 0.0 < b.mean < 1.0
 
     def test_from_mean_concentration(self):
         """Test the mean/concentration constructor."""

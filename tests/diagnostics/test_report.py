@@ -8,6 +8,7 @@ import pytest
 
 from credencegraph.core import Beta, Graph, Node, Relation, SourceAnchor, ValidationError
 from credencegraph.diagnostics import Finding, Report, diagnose, diagnose_many
+from credencegraph.semantics.network import Network
 
 ANCHOR = SourceAnchor("doi:10.0000/example")
 
@@ -46,6 +47,29 @@ def test_with_target_groups_every_diagnostic():
         *["value-of-information"] * 2,
     ]
     assert len({f.id for f in findings}) == len(findings)
+
+
+def test_failure_diagnostics_share_one_intervention_pass(monkeypatch):
+    """Test that the single points of failure and the failure impact come from one pass over the variables.
+
+    Each target fails every other variable exactly once, not once for each of the two diagnostics.
+    """
+    failed = []
+    intervene = Network.intervene
+
+    def counted(network, assignment):
+        failed.append(dict(assignment))
+        return intervene(network, assignment)
+
+    monkeypatch.setattr(Network, "intervene", counted)
+    diagnose(argument(), "T")
+    assert failed == [{"P": False}, {"L": False}]
+    failed.clear()
+    graph = argument()
+    graph.add_node(Node("U", base=0.4))
+    graph.add_relation(Relation("TU", "supports", "T", "U", strength=0.5))
+    diagnose_many(graph, ["T", "U"])
+    assert failed == [{"P": False}, {"L": False}, {"U": False}, {"P": False}, {"L": False}, {"T": False}]
 
 
 def test_missing_parameter_stops_the_report():

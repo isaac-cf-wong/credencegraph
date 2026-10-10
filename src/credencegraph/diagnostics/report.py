@@ -16,9 +16,10 @@ from credencegraph.diagnostics.weak_points import (
     DEFAULT_FAILURE_THRESHOLD,
     crux_findings,
     derivatives,
-    failure_impact,
+    failure_impact_findings,
+    interventions,
     sensitivity_findings,
-    single_points_of_failure,
+    single_point_of_failure_findings,
     value_of_information,
 )
 from credencegraph.inference.elimination import VariableElimination
@@ -190,9 +191,8 @@ def diagnose_many(  # noqa: PLR0913 - the options after the targets are keyword-
         found = weak_points[target] = []
         found.extend(sensitivity_findings(network, target, slopes, evidence=evidence))
         found.extend(crux_findings(network, target, slopes, evidence=evidence))
-        found.extend(
-            single_points_of_failure(network, target, evidence=evidence, threshold=failure_threshold, engine=engine)
-        )
-        found.extend(failure_impact(network, target, evidence=evidence, threshold=failure_threshold, engine=engine))
+        run = interventions(network, target, evidence=evidence, threshold=failure_threshold, engine=engine)
+        found.extend(single_point_of_failure_findings(run))
+        found.extend(failure_impact_findings(run))
         found.extend(value_of_information(network, target, evidence=evidence, engine=engine))
     return Report(findings, weak_points)
