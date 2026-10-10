@@ -166,7 +166,9 @@ def correlated_support(graph: Graph, min_supports: int = DEFAULT_MIN_SUPPORTS) -
     supporting variables share a source when a node of each is anchored in the same document, or
     points at the same node through an ``authored_by`` or ``derived_from`` annotation. A group of at
     least ``min_supports`` supporting variables of one node that share a source is reported when no
-    variable is a parent, through ``requires``, ``supports`` or ``refutes``, of every one of them.
+    variable is a parent, through ``requires``, ``supports`` or ``refutes``, of every one of them. A
+    relation of strength exactly 0 does not make a parent: it leaves the child's probability the same
+    whatever the parent's value.
     The usual fix is that common parent: a proposition such as "this source's unverified reasoning
     is sound", which each of them requires with strength 1, so that they fail together. A node of
     base b with no other parents then gets at most b + (1 - b) c from the group, c the credence of
@@ -198,7 +200,10 @@ def correlated_support(graph: Graph, min_supports: int = DEFAULT_MIN_SUPPORTS) -
     for relation in graph.relations.values():
         if relation.type in STRENGTH_TYPES:
             parent, child = root[relation.source], root[relation.target]
-            parents.setdefault(child, set()).add(parent)
+            # A term of strength 0 multiplies the child's table by 1 - 0 = 1 at both of the parent's
+            # values, so it makes the parent no cause of the child; a Beta strength has a positive mean.
+            if relation.strength is not None and relation.strength.mean > 0.0:
+                parents.setdefault(child, set()).add(parent)
             if relation.type == SUPPORTS:
                 supports.setdefault(child, {}).setdefault(parent, []).append(relation.id)
     findings: list[Finding] = []

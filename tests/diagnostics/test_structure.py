@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from credencegraph.core import Graph, Node, Relation, SourceAnchor, ValidationError
+from credencegraph.core import Beta, Graph, Node, Relation, SourceAnchor, ValidationError
 from credencegraph.diagnostics import (
     CORRELATED_SUPPORT,
     MISSING_PARAMETER,
@@ -174,6 +174,29 @@ class TestCorrelatedSupport:
             for i in range(2):
                 graph.add_relation(Relation(f"c{i}", rtype, "p", f"r{i}", strength=0.5))
             assert correlated_support(graph) == [], rtype
+
+    @pytest.mark.parametrize("rtype", ["requires", "supports", "refutes"])
+    def test_zero_strength_parent_is_not_common(self, rtype):
+        """Test that a shared parent whose relations have strength 0 does not silence the group.
+
+        A term of strength 0 multiplies the child's table by 1 - 0 = 1 whatever the parent's value, so
+        the parent has no effect on the supports and does not correlate them.
+        """
+        graph = pile(2)
+        graph.add_node(Node("p", base=0.5, sources=[ANCHOR]))
+        for i in range(2):
+            graph.add_relation(Relation(f"c{i}", rtype, "p", f"r{i}", strength=0.0))
+        (finding,) = correlated_support(graph)
+        assert finding.nodes == ("claim", "r0", "r1")
+
+    def test_one_effective_relation_makes_a_common_parent(self):
+        """Test that a parent with a zero-strength and an effective relation into each support still counts."""
+        graph = pile(2)
+        graph.add_node(Node("p", base=0.5, sources=[ANCHOR]))
+        for i in range(2):
+            graph.add_relation(Relation(f"z{i}", "requires", "p", f"r{i}", strength=0.0))
+            graph.add_relation(Relation(f"c{i}", "requires", "p", f"r{i}", strength=Beta(1, 99)))
+        assert correlated_support(graph) == []
 
     def test_min_supports(self):
         """Test that a group smaller than ``min_supports`` is not reported and one that reaches it is."""

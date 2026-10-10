@@ -137,11 +137,11 @@ are ten experiments or one source's reasoning written down ten times.
 `correlated_support` reports, for each node, a group of at least `min_supports`
 (2 by default) supporting variables that share a source, anchored in the same
 document or pointing at the same node through an `authored_by` or `derived_from`
-annotation, when no variable is a parent of all of them. The finding has no
-value; its `details` hold `supports`, the size of the group, and `min_supports`.
-The fix is a common parent that each of them requires with strength 1: the group
-can then lift a node of base b to at most b + (1 − b) c, c the common parent's
-credence, however large it is. See
+annotation, when no variable is a parent of all of them through relations of
+nonzero strength. The finding has no value; its `details` hold `supports`, the
+size of the group, and `min_supports`. The fix is a common parent that each of
+them requires with strength 1: the group can then lift a node of base b to at
+most b + (1 − b) c, c the common parent's credence, however large it is. See
 [Reading the diagnostics](../../reading-diagnostics.md#supports-from-one-source-pile-up)
 for a worked example.
 
