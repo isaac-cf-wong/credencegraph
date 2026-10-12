@@ -14,6 +14,6 @@ until 1.0, any minor release may change it.
   graph into a network.
 - **[Inference](inference)** – Exact engines and the four query types.
 - **[Diagnostics](diagnostics)** – Structural checks, overclaims, and the weak
-  points of a target: sensitivity, crux, single points of failure and value of
-  information.
+  points of a target: sensitivity, crux, single points of failure, failure
+  impact and value of information.
 - **[Utility](utils)** – Utility functions.
