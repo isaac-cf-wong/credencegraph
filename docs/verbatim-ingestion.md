@@ -11,10 +11,11 @@ description:
 > features are built against. The core part now exists, in
 > `credencegraph.rubric`: text normalisation and the digest, rubric files, the
 > `anchored`, `typed` and `assessed` checks with faithfulness, coverage, and the
-> `check --rubric --level`, `coverage`, `split` and `annotate` commands. Not yet
-> implemented: the ingestion layer (`ingest` and its readers, `missing-extra`),
-> `reanchor`, and `add-node --origin`. The section on what the engine provided
-> before this contract describes it as it was and cites that code.
+> `check --rubric --level`, `coverage`, `split` and `annotate` commands. The
+> ingestion layer has the LaTeX reader and `ingest` (without `--format`, which
+> comes with the PDF reader). Not yet implemented: the PDF reader, `reanchor`,
+> and `add-node --origin`. The section on what the engine provided before this
+> contract describes it as it was and cites that code.
 
 ## Why
 

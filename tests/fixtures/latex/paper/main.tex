@@ -1,0 +1,22 @@
+% An invented paper for testing the LaTeX reader. Its text and its references are made up.
+\documentclass{article}
+\input{macros}
+\title{A Toy Estimator}
+\author{A. N. Author}
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We study a toy estimator of the mean $\mu \in \R$.
+\end{abstract}
+
+\section{Introduction}
+Estimating a mean is an old problem~\cite{gauss1809}. % a comment that is not text
+We revisit it, e.g.\ for short segments, and we show that the bias vanishes.\footnote{The proof is in Sec.~\ref{sec:method}.}
+Is it consistent? The answer is yes \citep{fisher1925,gauss1809}.
+
+\input{sections/method}
+
+\bibliographystyle{plain}
+\bibliography{refs}
+\end{document}
