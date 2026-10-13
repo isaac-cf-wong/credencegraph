@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from credencegraph.core.anchor import SourceAnchor
-from credencegraph.core.credence import Beta, Credence, Point, as_credence
+from credencegraph.core.credence import Beta, Credence, Point, as_credence, parse_credence
 from credencegraph.core.errors import CredenceGraphError, CycleError, ValidationError
 from credencegraph.core.graph import Graph
 from credencegraph.core.node import Node
@@ -51,4 +51,5 @@ __all__ = [
     "json_schema",
     "load",
     "loads",
+    "parse_credence",
 ]

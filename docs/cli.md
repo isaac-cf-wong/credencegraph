@@ -35,7 +35,10 @@ credencegraph diagnose g.json --target signal --targets stated
 | `relate`   | Add a relation `SOURCE TARGET --type TYPE`, with `--strength` where the type needs one.             |
 | `query`    | `marginal`, `joint`, `conditional` or `intervene`, with `--given`, `--set`, `--draws`, `--seed`.    |
 | `diagnose` | Every diagnostic's findings; `--target` or `--targets` adds weak points, `--given` conditions them. |
-| `check`    | Whether the file is a valid graph that compiles; a graph that does not is a `compile-error`.        |
+| `check`    | Whether the file is a valid graph that compiles; with `--rubric`, whether it meets a rubric.        |
+| `coverage` | How far classification against a `--rubric` has got: counts by origin and type, what is left.       |
+| `split`    | Make a document chunk `NODE` a compound, with a span child per `--at` clause or a field child.      |
+| `annotate` | Type (`--type`), fill in (`--set`), link (`--rests-on`) and assess (`--verdict`) a node.            |
 | `version`  | The installed version.                                                                              |
 
 **Credences** are written as a bare probability, `0.3`, or as a Beta
@@ -56,6 +59,52 @@ relation of the same type between the same nodes.
 A relation type outside `requires`, `supports`, `refutes`, `equivalent` and
 `exclusive` is an annotation, which inference ignores. A type close to an
 inferential one, such as `support`, is still stored, but the command warns.
+
+## Checking against a rubric
+
+A graph built from a document's own text is classified against a **rubric**: a
+TOML file that declares the node types, the form fields each type carries, and
+what each type must rest on. The format, the node origins and every rule are
+specified in [Verbatim ingestion](verbatim-ingestion.md); the example rubric
+used throughout is
+[`docs/examples/methods-paper.toml`](https://github.com/isaac-cf-wong/credencegraph/blob/main/docs/examples/methods-paper.toml).
+
+```bash
+credencegraph check paper.json --rubric methods.toml --level anchored
+credencegraph split paper.json s-012 --at "We show that the bias vanishes for long segments" --at "the estimator is consistent"
+credencegraph annotate paper.json s-012a --rubric methods.toml --type result --set quantity="the bias" --set trend=vanishes
+credencegraph annotate paper.json s-012b --rubric methods.toml --type claim --set shape=universal \
+    --set statement="the estimator is consistent" --rests-on s-012a
+credencegraph check paper.json --rubric methods.toml --level typed
+credencegraph annotate paper.json s-012b --rubric methods.toml --not-assessed "outside the scope of this review"
+credencegraph coverage paper.json --rubric methods.toml
+```
+
+- `check --rubric RUBRIC --level anchored|typed|assessed` checks the graph at
+  that level and every level below it, `typed` by default. Every violation is
+  reported, in `details.violations` of a `rubric-violation` error, each a
+  finding whose `diagnostic` is the violation's code and whose id is
+  `<code>:<node id>`; the text message lists them all on one line. At `assessed`
+  the graph must also compile, and when it does not, `details.compile_error`
+  holds the details a plain `check` would give. `--level` without `--rubric` is
+  an `invalid-argument`; without `--rubric`, `check` is unchanged.
+- `coverage --rubric RUBRIC` never fails on a graph that loads: it reports
+  `nodes`, `by_origin`, `by_type` (document nodes, with each type's `share`),
+  the `untyped` nodes, the `unexamined` ones (needing an assessment and having
+  none), and the `not_assessed` verdicts with their reasons.
+- `split NODE --at CLAUSE…` takes clauses that occur exactly once in the node's
+  text; `split NODE --fields` adds one field child, which gets its content from
+  `annotate --set`. A node with a form, an assessment or a base cannot be split.
+- `annotate NODE --rubric RUBRIC` validates each write: `--type` must be
+  declared and allowed for the node's origin (`unassigned` removes the type,
+  form, assessment and base); `--set FIELD=VALUE` parses the value as JSON, else
+  as a string, and it must have the field's type and be found in the node's
+  text; `--rests-on ID` adds the type's edge-rule relation from `ID`, which must
+  have a type the rule names; `--verdict holds|fails|undetermined` or
+  `--not-assessed REASON` sets the assessment.
+
+A rubric file that cannot be read is an `invalid-rubric` error, or
+`file-not-found` when it does not exist.
 
 ## Diagnosing under evidence
 
@@ -185,7 +234,8 @@ A failure exits with status 1 and prints an `error` object instead:
 The `code` is stable and meant for programs; the `message` and `hint` are for
 people. The codes are `file-exists`, `file-not-found`, `io-error`,
 `invalid-graph`, `invalid-argument`, `duplicate-id`, `unknown-node`, `cycle`,
-`compile-error`, `zero-probability` and `problem-too-large`.
+`compile-error`, `zero-probability`, `problem-too-large`, `invalid-rubric` and
+`rubric-violation`.
 
 A graph that cannot be compiled for inference is a `compile-error`, whichever
 command meets it: an inference variable without a base, equivalent nodes with

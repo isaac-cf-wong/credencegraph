@@ -16,6 +16,7 @@ from credencegraph.core import Graph, Node, Relation, dump
 from credencegraph.inference import InferenceError, ProblemTooLargeError
 
 DOCS = Path(__file__).parents[2] / "docs" / "cli.md"
+RUBRIC = Path(__file__).parents[2] / "docs" / "examples" / "methods-paper.toml"
 
 
 def write(path: Path, *nodes: Node, relations: tuple[Relation, ...] = ()) -> Path:
@@ -96,7 +97,20 @@ def example(tmp_path: Path) -> Path:
     )
 
 
-# One real failure per command, and per documented error code.
+def untyped(tmp_path: Path) -> Path:
+    """A chunk of a document that has no type yet."""
+    return write(tmp_path / "g.json", Node("s-1", kind="unassigned", attributes={"origin": "document"}))
+
+
+def bad_rubric(tmp_path: Path) -> Path:
+    """A rubric file of an unknown format."""
+    path = tmp_path / "rubric.toml"
+    path.write_text('[rubric]\nformat = 99\nname = "x"\nversion = "1"\n[types]\n', encoding="utf-8")
+    return path
+
+
+# One real failure per command, and per documented error code. An extra argument may be a function
+# of the test's directory, for a file the command reads besides the graph.
 FAILURES = {
     "file-exists": ("init", example, ()),
     "file-not-found": ("check", lambda tmp: tmp / "absent.json", ()),
@@ -109,6 +123,8 @@ FAILURES = {
     "compile-error": ("check", missing_base, ()),
     "zero-probability": ("query", certain_exclusive, ("marginal", "A", "--draws", "0")),
     "problem-too-large": ("query", too_large, ("marginal", "child", "--draws", "0")),
+    "invalid-rubric": ("annotate", untyped, ("s-1", "--rubric", bad_rubric, "--type", "result")),
+    "rubric-violation": ("check", untyped, ("--rubric", RUBRIC)),
 }
 
 
@@ -122,6 +138,7 @@ def provoke(cli, tmp_path, code, *, as_json=True):
     """Run the command that fails with ``code``."""
     command, make, extra = FAILURES[code]
     path = make(tmp_path)
+    extra = [item(tmp_path) if callable(item) else item for item in extra]
     args = [command, path, *extra] + (["--json"] if as_json else [])
     return cli.run(*args)
 
@@ -174,8 +191,16 @@ def test_problem_too_large_hint_names_a_next_step(cli, tmp_path):
 
 
 def test_every_command_is_covered():
-    """Test that the failure table exercises each of the six commands."""
-    assert {entry[0] for entry in FAILURES.values()} == {"init", "add-node", "relate", "query", "diagnose", "check"}
+    """Test that the failure table exercises the commands; ``coverage`` and ``split`` fail in their own tests."""
+    assert {entry[0] for entry in FAILURES.values()} == {
+        "init",
+        "add-node",
+        "relate",
+        "query",
+        "diagnose",
+        "check",
+        "annotate",
+    }
 
 
 def test_inference_errors_have_their_own_codes():
