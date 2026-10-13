@@ -238,6 +238,18 @@ form, so there is one source of truth for the argument's structure. A compound
 is an endpoint of no relation other than incoming `part-of` and outgoing
 `cites`.
 
+The other two inferential kinds, `equivalent` and `exclusive`, have no role in
+this contract: `ingest` and `annotate` never create them, and an edge rule
+cannot name them, since its `relation` is `requires` or `supports`. An ingested
+graph may still carry them, added by the analyst with `add-relation`, and the
+validation levels treat them like any relation outside the list above:
+`anchored` rejects one only when an endpoint is a compound
+(`compound-has-content`), and `typed` neither requires nor counts them, so they
+can never satisfy a type's edge rule. At `assessed` they enter inference as
+usual, so nodes joined by `equivalent` must not carry conflicting bases
+(`compile-error`), and one from an evidence node counts as the relation that
+backs a verdict.
+
 ## Rubric format
 
 A rubric is a TOML file. The core reads it with the standard library
