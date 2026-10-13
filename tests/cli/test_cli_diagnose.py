@@ -8,7 +8,7 @@ import pytest
 from _cli import example_graph
 
 import credencegraph
-from credencegraph.core import Beta, Graph, Node, Relation, ValidationError, dump
+from credencegraph.core import Beta, Graph, Node, Relation, SourceAnchor, ValidationError, dump
 from credencegraph.diagnostics import diagnose, diagnose_many
 from credencegraph.inference import VariableElimination
 
@@ -98,6 +98,32 @@ class TestDiagnose:
         output = cli.json("diagnose", path, "--target", "child", "--max-factor-size", "16")
         expected = diagnose_many(graph, ["child"], engine=VariableElimination(16))
         assert output["findings"] == expected.to_dicts()
+
+    def test_min_supports_is_passed_on(self, cli, tmp_path):
+        """Test that --min-supports 3 silences a pair of supports sharing a source, and 3 of them are reported."""
+        graph = graph_with(
+            Node("claim", base=0.1),
+            *(Node(f"reason-{i}", base=0.5, sources=[SourceAnchor("paper-x")]) for i in range(3)),
+            relations=tuple(Relation(f"r{i}", "supports", f"reason-{i}", "claim", strength=0.5) for i in range(2)),
+        )
+        path = tmp_path / "g.json"
+        dump(graph, path)
+        (pair,) = cli.json("diagnose", path)["findings"]
+        assert pair["id"] == "correlated-support:claim:document:paper-x"
+        assert cli.json("diagnose", path, "--min-supports", "3")["findings"] == []
+        graph.add_relation(Relation("r2", "supports", "reason-2", "claim", strength=0.5))
+        dump(graph, path)
+        output = cli.json("diagnose", path, "--min-supports", "3")
+        assert output["findings"] == diagnose_many(graph, [], min_supports=3).to_dicts()
+        assert [f["details"] for f in output["findings"]] == [{"supports": 3.0, "min_supports": 3.0}]
+
+    def test_min_supports_below_two(self, cli, graph_file):
+        """Test that a group size below 2, which the library refuses, is refused before the graph is read."""
+        with pytest.raises(ValidationError):
+            diagnose_many(example_graph(), [], min_supports=1)
+        error = cli.error("diagnose", graph_file, "--min-supports", "1")
+        assert error["code"] == "invalid-argument"
+        assert "--min-supports must be 2 or more" in error["message"]
 
     def test_missing_file(self, cli, tmp_path):
         """Test that a missing graph file is reported."""

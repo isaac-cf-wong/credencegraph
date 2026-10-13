@@ -28,7 +28,7 @@ from credencegraph.core.graph import Graph
 from credencegraph.diagnostics.claims import DEFAULT_CLAIM_THRESHOLD
 from credencegraph.diagnostics.records import Finding
 from credencegraph.diagnostics.report import diagnose_many
-from credencegraph.diagnostics.structure import missing_parameters, unanchored
+from credencegraph.diagnostics.structure import DEFAULT_MIN_SUPPORTS, missing_parameters, unanchored
 from credencegraph.diagnostics.weak_points import DEFAULT_FAILURE_THRESHOLD
 from credencegraph.inference.elimination import DEFAULT_MAX_FACTOR_SIZE, VariableElimination
 from credencegraph.inference.engine import Query
@@ -203,6 +203,12 @@ def diagnose_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to ea
             )
         ),
     ] = DEFAULT_FAILURE_THRESHOLD,
+    min_supports: Annotated[
+        int,
+        typer.Option(
+            help="Report a node whose supports sharing a source and no common parent number at least this many, 2 or more."
+        ),
+    ] = DEFAULT_MIN_SUPPORTS,
     max_factor_size: Annotated[
         int, typer.Option(help="The largest intermediate factor exact inference may build, in table entries.")
     ] = DEFAULT_MAX_FACTOR_SIZE,
@@ -222,6 +228,12 @@ def diagnose_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to ea
         evidence = parse_assignment(given or (), "--given")
         claims_at = _log_odds_threshold(claim_threshold, "--claim-threshold")
         failures_at = _threshold(failure_threshold, "--failure-threshold")
+        if min_supports < 2:  # noqa: PLR2004 - a group is two or more
+            raise CliError(
+                INVALID_ARGUMENT,
+                f"--min-supports must be 2 or more, got {min_supports}",
+                f"the default is {DEFAULT_MIN_SUPPORTS}, which reports any two supports that share a source",
+            )
         if max_factor_size < 1:
             raise CliError(
                 INVALID_ARGUMENT,
@@ -244,6 +256,7 @@ def diagnose_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to ea
                 evidence=evidence,
                 claim_threshold=claims_at,
                 failure_threshold=failures_at,
+                min_supports=min_supports,
                 engine=engine,
             )
         except CompileError as error:
