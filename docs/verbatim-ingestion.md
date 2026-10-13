@@ -239,9 +239,11 @@ is an endpoint of no relation other than incoming `part-of` and outgoing
 `cites`.
 
 The other two inferential kinds, `equivalent` and `exclusive`, have no role in
-this contract: `ingest` and `annotate` never create them, and an edge rule
-cannot name them, since its `relation` is `requires` or `supports`. An ingested
-graph may still carry them, added by the analyst with `add-relation`, and the
+this contract: `ingest` must not create them (a requirement on the ingestion
+layer, which is not implemented yet), `annotate` never creates them, and an edge
+rule cannot name them, since its `relation` is `requires` or `supports`. An
+ingested graph may still carry them, added by the analyst with `add-relation`,
+and the
 validation levels treat them like any relation outside the list above:
 `anchored` rejects one only when an endpoint is a compound
 (`compound-has-content`), and `typed` neither requires nor counts them, so they
