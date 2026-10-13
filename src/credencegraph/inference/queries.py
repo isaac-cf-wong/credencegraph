@@ -215,7 +215,9 @@ def intervene(  # noqa: PLR0913 - the options after the query itself are keyword
         set: The nodes to set and their values.
         given: Values observed after the intervention, if any.
         engine: The inference engine; variable elimination by default.
-        draws: The number of parameter draws behind the band; 0 skips the band.
+        draws: The number of parameter draws behind the band. Each draw answers the query exactly once
+            more, so the default band costs ``DEFAULT_DRAWS`` exact inferences; 0 skips the band and
+            gives the point answer alone.
         rng: A random generator, or a seed for one, for the draws; ``None`` draws fresh entropy.
 
     Returns:
