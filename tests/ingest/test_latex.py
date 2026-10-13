@@ -152,6 +152,40 @@ def test_macros(tmp_path):
     ]
 
 
+def test_commented_out_definitions_define_nothing(tmp_path):
+    r"""Test that a ``\def`` or ``\newcommand`` in a comment, whole-line or trailing, leaves its macro as written."""
+    preamble = lines(
+        r"% \def\foo{WRONG}",
+        r"\newcommand{\bar}{RIGHT} % \def\bar{WRONG}",
+        r"%\newcommand{\baz}{WRONG}",
+    )
+    chunks = read(tmp_path, r"\foo, \bar and \baz appear.", preamble)
+    assert texts(chunks) == [r"\foo, RIGHT and \baz appear."]
+
+
+def test_footnotes_inside_groups_and_macros(tmp_path):
+    r"""Test that a ``\footnote`` inside a group, a macro argument or a macro's body is a footnote chunk, not text."""
+    preamble = r"\newcommand{\note}[1]{\footnote{#1}}"
+    body = lines(
+        r"A \emph{small\footnote{Hidden note \cite{k}.}} claim.",
+        r"A {grouped\footnote{Grouped note.}} and a defined\note{Macro note.} one.",
+    )
+    chunks = read(tmp_path, body, preamble)
+    assert [(chunk.unit, chunk.text, chunk.locator, chunk.cites) for chunk in chunks] == [
+        ("sentence", r"A \emph{small} claim.", "file=main.tex;lines=4-4", ()),
+        ("footnote", r"Hidden note \cite{k}.", "file=main.tex;lines=4-4", ("k",)),
+        ("sentence", "A {grouped} and a defined one.", "file=main.tex;lines=5-5", ()),
+        ("footnote", "Grouped note.", "file=main.tex;lines=5-5", ()),
+        ("footnote", "Macro note.", "file=main.tex;lines=5-5", ()),
+    ]
+
+
+def test_macros_inside_other_macros_arguments(tmp_path):
+    r"""Test that a user macro inside the argument of a macro that is not user-defined is expanded, spacing kept."""
+    chunks = read(tmp_path, r"See \emph{$\R$} and \textbf [x]{\R}.", r"\newcommand{\R}{\mathbb{R}}")
+    assert texts(chunks) == [r"See \emph{$\mathbb{R}$} and \textbf [x]{\mathbb{R}}."]
+
+
 def test_macro_defined_in_the_body_and_recursive(tmp_path):
     r"""Test that a body ``\def`` adds no text, and that a macro defined in terms of itself stops expanding."""
     body = r"\def\k{K}A \k{} sentence. \newcommand{\loop}{\loop}Then \loop."

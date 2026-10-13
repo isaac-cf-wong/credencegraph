@@ -232,6 +232,7 @@ class _Reader:
         self.texts: dict[Path, str] = {}
         self.stack: list[Path] = []
         self.walker: LatexWalker | None = None
+        self.expanding: list[LatexMacroNode] = []
         self.file = ""
         self.context = get_default_latex_context_db()
 
@@ -272,11 +273,16 @@ class _Reader:
             msg = f"the document inputs itself: {chain}"
             raise LatexError(msg)
         self.stack.append(path)
-        text = self.text(path)
-        for match in _DEF.finditer(text):
-            body = _group_body(text, match.end() - 1)
-            self.definitions[match[1]] = _Definition(len(_PARAMETER.findall(match[2])), None, body)
         _, nodes = self.parse(path)
+        # A \def is found in the text with its comments blanked out, so a commented-out one defines nothing.
+        text = list(self.text(path))
+        for comment in _walk(nodes):
+            if isinstance(comment, LatexCommentNode):
+                text[comment.pos : comment.pos + comment.len] = " " * comment.len
+        uncommented = "".join(text)
+        for match in _DEF.finditer(uncommented):
+            body = _group_body(uncommented, match.end() - 1)
+            self.definitions[match[1]] = _Definition(len(_PARAMETER.findall(match[2])), None, body)
         for node in _walk(nodes):
             if not isinstance(node, LatexMacroNode) or node.nodeargd is None:
                 continue
@@ -315,7 +321,12 @@ class _Reader:
         body = _PARAMETER.sub(lambda m: values[int(m[1]) - 1] if int(m[1]) <= len(values) else m[0], definition.body)
         walker = LatexWalker(body, latex_context=self.context, tolerant_parsing=True)
         nodes, _, _ = walker.get_latex_nodes()
-        return self.render_nodes(nodes, cites, labels, depth + 1) + ("" if arguments else node.macro_post_space or "")
+        self.expanding.append(node)
+        try:
+            text = self.render_nodes(nodes, cites, labels, depth + 1)
+        finally:
+            self.expanding.pop()
+        return text + ("" if arguments else node.macro_post_space or "")
 
     # Rendering: the LaTeX text of a node, macros expanded, comments and labels dropped
 
@@ -323,7 +334,7 @@ class _Reader:
         """The text of a node list."""
         return "".join(self.render(node, cites, labels, depth) for node in nodes if node is not None)
 
-    def render(self, node: LatexNode, cites: list[str], labels: list[str], depth: int = 0) -> str:  # noqa: PLR0911 - one return per kind of node
+    def render(self, node: LatexNode, cites: list[str], labels: list[str], depth: int = 0) -> str:
         """The text of a node, collecting the citation keys and labels inside it."""
         if isinstance(node, LatexCommentNode):
             return ""
@@ -339,19 +350,54 @@ class _Reader:
             body = self.render_nodes(node.nodelist, cites, labels, depth)
             return f"\\begin{{{node.environmentname}}}{head}{body}\\end{{{node.environmentname}}}"
         if isinstance(node, LatexMacroNode):
-            name = node.macroname
-            if name == "label" and node.nodeargd is not None:
-                labels.append(_argument_text(node.nodeargd.argnlist[-1]).strip())
-                return ""
-            if name in _DROPPED or name == "footnote":
-                return ""
-            if name in _CITES and node.nodeargd is not None:
-                for key in _argument_text(node.nodeargd.argnlist[-1]).split(","):
-                    if key.strip() and key.strip() not in cites:
-                        cites.append(key.strip())
-            if name in self.definitions and depth < MAX_EXPANSION_DEPTH:
-                return self.expand(node, cites, labels, depth)
+            return self.render_macro(node, cites, labels, depth)
         return node.latex_verbatim()
+
+    def render_macro(self, node: LatexMacroNode, cites: list[str], labels: list[str], depth: int) -> str:
+        """The text of a macro: a label or footnote taken out, a user macro expanded, arguments read."""
+        name = node.macroname
+        if name == "label" and node.nodeargd is not None:
+            labels.append(_argument_text(node.nodeargd.argnlist[-1]).strip())
+            return ""
+        if name == "footnote":
+            self.footnote(node)
+            return ""
+        if name in _DROPPED:
+            return ""
+        if name in _CITES and node.nodeargd is not None:
+            for key in _argument_text(node.nodeargd.argnlist[-1]).split(","):
+                if key.strip() and key.strip() not in cites:
+                    cites.append(key.strip())
+        if name in self.definitions and depth < MAX_EXPANSION_DEPTH:
+            return self.expand(node, cites, labels, depth)
+        if node.nodeargd is not None:
+            return self.render_arguments(node, cites, labels, depth)
+        return node.latex_verbatim()
+
+    def render_arguments(self, node: LatexMacroNode, cites: list[str], labels: list[str], depth: int) -> str:
+        """The source of a macro with each argument replaced by its text, so what is inside them is read too."""
+        source = node.latex_verbatim()
+        parts = []
+        cursor = 0
+        for argument in sorted((a for a in node.nodeargd.argnlist if a is not None), key=lambda a: a.pos):
+            start = argument.pos - node.pos
+            parts.extend((source[cursor:start], self.render(argument, cites, labels, depth)))
+            cursor = start + argument.len
+        parts.append(source[cursor:])
+        return "".join(parts)
+
+    def footnote(self, node: LatexMacroNode) -> None:
+        r"""Add a footnote chunk once the current sentence ends, wherever the ``\footnote`` is.
+
+        Inside a macro expansion the footnote is located at the macro the source holds.
+        """
+        if node.nodeargd is None or not node.nodeargd.argnlist:
+            return
+        cites: list[str] = []
+        argument = node.nodeargd.argnlist[-1]
+        text = self.render_nodes(getattr(argument, "nodelist", [argument]), cites, [])
+        located = self.expanding[0] if self.expanding else node
+        self.emit(self.chunk(FOOTNOTE, text, located, cites), after_sentence=True)
 
     # Chunks
 
@@ -546,10 +592,8 @@ class _Reader:
             bbl = self.main.with_suffix(".bbl")
             if bbl.is_file():
                 self.read_bbl(bbl)
-        elif name == "footnote" and arguments:
-            cites: list[str] = []
-            text = self.render_nodes(getattr(arguments[-1], "nodelist", []), cites, [])
-            self.emit(self.chunk(FOOTNOTE, text, node, cites), after_sentence=True)
+        elif name == "footnote":
+            self.footnote(node)
         elif name in _BREAKING:
             self.end_sentence()
         elif name in _DROPPED:
