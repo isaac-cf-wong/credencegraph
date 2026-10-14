@@ -249,6 +249,29 @@ def test_crux_when_an_exact_strength_zeroes_the_target(engine, strength, zero):
         assert findings[0].value > 0.0
 
 
+@pytest.mark.parametrize("engine", ENGINES)
+def test_crux_when_an_allowed_row_of_the_observed_child_is_identically_zero(engine):
+    """Test that an allowed row with no entry in play leaves the other rows to decide the cancellation.
+
+    A and B support C with strengths f and g, and C has base 0, so P(C | A, B) = 1 - (1 - f)^A (1 - g)^B.
+    Observing C true, the row A = B = 0 is 0 whatever f is and drops out of every joint probability,
+    while the rows A = 1, B = 0 and A = 0, B = 1 are f and g, not one function of f up to a factor
+    free of it. So f does not cancel from P(A | C): it is ranked with a crux above zero. Were the
+    zero row taken as the common direction of the others, every row would match it and f would be
+    reported as one the target cannot depend on.
+    """
+    graph = Graph()
+    graph.add_node(Node("A", base=0.6))
+    graph.add_node(Node("B", base=0.5))
+    graph.add_node(Node("C", base=Point(0.0)))
+    graph.add_relation(Relation("AC", "supports", "A", "C", strength=Beta(2, 2)))
+    graph.add_relation(Relation("BC", "supports", "B", "C", strength=0.5))
+    network = compile_graph(graph)
+    findings = crux(network, "A", evidence={"C": True}, engine=engine)
+    assert findings[0].id == "crux:strength:AC"
+    assert findings[0].value > 0.0
+
+
 def _refuted_and_supported(support):
     """T refutes X with strength 0.7, S supports X with the given strength, and X has a Beta base."""
     graph = Graph()
