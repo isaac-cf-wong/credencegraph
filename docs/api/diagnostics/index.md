@@ -34,6 +34,15 @@ observed, a base multiplied by a `requires` strength of exactly 1 whose premise
 is observed false). A derivative that is zero only because contributions through
 different tables cancel is not detected, and θ is then still ranked.
 
+The cancellation check enumerates the rows of the carrier's table that the
+evidence leaves, in exact rational arithmetic, so its worst-case cost grows like
+2^k, where k is the number of the carrier's parents not fixed by evidence,
+interventions or `exclusive` constraints; that parent count is the scaling
+limit. The worst case is not the usual one: the check stops at the first row
+that rules cancellation out, and `crux` checks only uncertain parameters and
+stops at the first one T depends on. A parameter that does cancel always costs
+the full enumeration.
+
 `diagnose(graph, target)` runs them all. If a parameter is missing the graph
 cannot be compiled, and the report stops after the structural checks.
 
