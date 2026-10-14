@@ -32,7 +32,12 @@ evidence leaves, in exact arithmetic (a `requires` strength whose premise is
 observed true, the base of an observed-true child whose supports are all
 observed, a base multiplied by a `requires` strength of exactly 1 whose premise
 is observed false). A derivative that is zero only because contributions through
-different tables cancel is not detected, and θ is then still ranked.
+different tables cancel is not detected, and θ is then still ranked. Nor is one
+that is zero only because θ becomes a common factor once a free parent of its
+table, neither observed nor T, is summed out: the rows of the table alone do not
+show it. With T refuting an observed-true X and a free root M requiring X, the
+`requires` strength multiplies both values of T alike once M is summed out, yet
+it is still ranked; observing M as well lets the table show it.
 
 `diagnose(graph, target)` runs them all. If a parameter is missing the graph
 cannot be compiled, and the report stops after the structural checks.
