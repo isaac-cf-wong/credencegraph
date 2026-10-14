@@ -38,10 +38,10 @@ The cancellation check enumerates the rows of the carrier's table that the
 evidence leaves, in exact rational arithmetic, so its worst-case cost grows like
 2^k, where k is the number of the carrier's parents not fixed by evidence,
 interventions or `exclusive` constraints; that parent count is the scaling
-limit. The worst case is not the usual one: the check stops at the first row
-that rules cancellation out, and `crux` checks only uncertain parameters and
-stops at the first one T depends on. A parameter that does cancel always costs
-the full enumeration.
+limit. The check returns as soon as it reaches a row that rules cancellation
+out, so it can stop before the last row, and `crux` checks only uncertain
+parameters and stops at the first one T depends on. A parameter that does cancel
+always costs the full enumeration.
 
 `diagnose(graph, target)` runs them all. If a parameter is missing the graph
 cannot be compiled, and the report stops after the structural checks.
