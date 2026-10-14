@@ -172,11 +172,11 @@ done
 credencegraph query pile.json marginal claim   # 0.892626
 credencegraph diagnose pile.json
 # correlated-support:claim:document:paper-x: node 'claim' has 10 supports, ...
-#   that share document 'paper-x' but no common parent: ...
+#   that share document 'paper-x' but no common ancestor: ...
 ```
 
 The `correlated-support` finding names a node with two or more supports that
-share a source and no common parent. Two supports share a source when they are
+share a source and no common ancestor. Two supports share a source when they are
 anchored in the same document, or when each points at the same node through an
 `authored_by` or `derived_from` annotation. Annotations never change a credence,
 so recording where a reason came from is free: the diagnostic reads it,

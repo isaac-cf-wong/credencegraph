@@ -134,7 +134,7 @@ def pile(n, anchor=ANCHOR):
 
 
 class TestCorrelatedSupport:
-    """Supports of one node that share a source and no common parent are reported."""
+    """Supports of one node that share a source and no common ancestor are reported."""
 
     def test_supports_from_one_document(self):
         """Test the record for three supports anchored in the same document."""
@@ -146,7 +146,7 @@ class TestCorrelatedSupport:
         assert finding.value is None
         assert dict(finding.details) == {"supports": 3.0, "min_supports": 2.0}
         assert finding.message.startswith("node 'claim' has 3 supports, 'r0', 'r1', 'r2', that share document ")
-        assert "no common parent" in finding.message
+        assert "no common ancestor" in finding.message
         assert len(finding.message.splitlines()) == 1
 
     def test_common_parent_silences_it(self):
@@ -174,6 +174,34 @@ class TestCorrelatedSupport:
             for i in range(2):
                 graph.add_relation(Relation(f"c{i}", rtype, "p", f"r{i}", strength=0.5))
             assert correlated_support(graph) == [], rtype
+
+    @pytest.mark.parametrize(("strength", "reported"), [(0.5, False), (0.0, True)])
+    def test_member_that_is_an_ancestor_of_the_others(self, strength, reported):
+        """Test the chain ``r0 supports r1``: ``r0`` correlates the two supports, unless at strength 0."""
+        graph = pile(2)
+        graph.add_relation(Relation("chain", "supports", "r0", "r1", strength=strength))
+        findings = correlated_support(graph)
+        assert [f.nodes for f in findings] == ([("claim", "r0", "r1")] if reported else [])
+
+    @pytest.mark.parametrize(("strength", "reported"), [(0.9, False), (0.0, True)])
+    def test_common_grandparent(self, strength, reported):
+        """Test that a variable reaching every support through a chain of parents is a common ancestor."""
+        graph = pile(3)
+        graph.add_node(Node("root", base=0.5, sources=[ANCHOR]))
+        graph.add_node(Node("mid", base=0.5, sources=[ANCHOR]))
+        graph.add_relation(Relation("rm", "requires", "root", "mid", strength=strength))
+        graph.add_relation(Relation("m0", "requires", "mid", "r0", strength=1.0))
+        graph.add_relation(Relation("m1", "refutes", "mid", "r1", strength=0.3))
+        graph.add_relation(Relation("c2", "supports", "root", "r2", strength=0.4))
+        findings = correlated_support(graph)
+        assert [f.nodes for f in findings] == ([("claim", "r0", "r1", "r2")] if reported else [])
+
+    def test_ancestor_of_only_some_is_not_common(self):
+        """Test that one support descending from another does not silence a third, unrelated support."""
+        graph = pile(3)
+        graph.add_relation(Relation("chain", "supports", "r0", "r1", strength=0.5))
+        (finding,) = correlated_support(graph)
+        assert finding.nodes == ("claim", "r0", "r1", "r2")
 
     @pytest.mark.parametrize("rtype", ["requires", "supports", "refutes"])
     def test_zero_strength_parent_is_not_common(self, rtype):

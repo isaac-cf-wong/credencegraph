@@ -157,19 +157,36 @@ def _provenance(
     return provenance
 
 
+def _lineage(node: str, parents: dict[str, set[str]], cache: dict[str, set[str]]) -> set[str]:
+    """Return ``node`` and every variable it descends from through ``parents``, cached in ``cache``."""
+    if node not in cache:
+        seen = {node}
+        stack = [node]
+        while stack:
+            for parent in parents.get(stack.pop(), ()):
+                if parent not in seen:
+                    seen.add(parent)
+                    stack.append(parent)
+        cache[node] = seen
+    return cache[node]
+
+
 def correlated_support(graph: Graph, min_supports: int = DEFAULT_MIN_SUPPORTS) -> list[Finding]:
-    """Find supports of one node that share a source but no common parent.
+    """Find supports of one node that share a source but no common ancestor.
 
     The ``supports`` relations into a node combine as a noisy OR of independent reasons: ten of
     strength 0.2 into a node of base 0 give it 1 - 0.8^10, about 0.893. Reasons that come from one
-    source are rarely independent, and nothing in the graph says so unless they share a parent. Two
+    source are rarely independent, and nothing in the graph says so unless they share an ancestor. Two
     supporting variables share a source when a node of each is anchored in the same document, or
     points at the same node through an ``authored_by`` or ``derived_from`` annotation. A group of at
     least ``min_supports`` supporting variables of one node that share a source is reported when no
-    variable is a parent, through ``requires``, ``supports`` or ``refutes``, of every one of them. A
-    relation of strength exactly 0 does not make a parent: it leaves the child's probability the same
-    whatever the parent's value.
-    The usual fix is that common parent: a proposition such as "this source's unverified reasoning
+    variable is a common ancestor of them: an ancestor, through chains of ``requires``, ``supports``
+    or ``refutes`` relations, of every one of them, or one of them that is an ancestor of all the
+    others, as in ``p0 supports p1``, ``p0 supports claim``, ``p1 supports claim``. Either way the
+    graph already makes them depend on one variable, so inference does not count them as independent.
+    A relation of strength exactly 0 does not make a parent: it leaves the child's probability the
+    same whatever the parent's value.
+    The usual fix is a common parent: a proposition such as "this source's unverified reasoning
     is sound", which each of them requires with strength 1, so that they fail together. A node of
     base b with no other parents then gets at most b + (1 - b) c from the group, c the credence of
     the proposition, however large the group.
@@ -196,6 +213,7 @@ def correlated_support(graph: Graph, min_supports: int = DEFAULT_MIN_SUPPORTS) -
     root = {node_id: representative for representative, ids in members.items() for node_id in ids}
     provenance = _provenance(graph, members, root)
     parents: dict[str, set[str]] = {}
+    lineage: dict[str, set[str]] = {}
     supports: dict[str, dict[str, list[str]]] = {}
     for relation in graph.relations.values():
         if relation.type in STRENGTH_TYPES:
@@ -215,7 +233,7 @@ def correlated_support(graph: Graph, min_supports: int = DEFAULT_MIN_SUPPORTS) -
                 sharing.setdefault(key, []).append(parent)
         groups: dict[tuple[str, ...], list[tuple[str, str]]] = {}
         for key, group in sharing.items():
-            if len(group) >= count and not set.intersection(*(parents.get(parent, set()) for parent in group)):
+            if len(group) >= count and not set.intersection(*(_lineage(parent, parents, lineage) for parent in group)):
                 groups.setdefault(tuple(group), []).append(key)
         for group, keys in groups.items():
             names = ", ".join(repr(parent) for parent in group)
@@ -225,7 +243,7 @@ def correlated_support(graph: Graph, min_supports: int = DEFAULT_MIN_SUPPORTS) -
                     diagnostic=CORRELATED_SUPPORT,
                     message=(
                         f"node {target!r} has {len(group)} supports, {names}, that share "
-                        f"{' and '.join(_render(key) for key in keys)} but no common parent: inference counts "
+                        f"{' and '.join(_render(key) for key in keys)} but no common ancestor: inference counts "
                         "them as independent reasons; if they rest on one source's reasoning, add a proposition "
                         "for it that each of them requires"
                     ),
