@@ -123,12 +123,12 @@ class TestUnanchored:
         assert finding.nodes == ("a", "a2")
 
 
-def pile(n, anchor=ANCHOR):
-    """A claim of base 0 with ``n`` supports of strength 0.2, ``r0`` to ``r<n-1>``, each anchored in ``anchor``."""
+def pile(n, anchor=ANCHOR, base=1.0):
+    """A claim of base 0 with ``n`` supports of strength 0.2 and base ``base``, ``r0`` to ``r<n-1>``, each anchored in ``anchor``."""
     graph = Graph()
     graph.add_node(Node("claim", base=0.0))
     for i in range(n):
-        graph.add_node(Node(f"r{i}", base=1.0, sources=[anchor]))
+        graph.add_node(Node(f"r{i}", base=base, sources=[anchor]))
         graph.add_relation(Relation(f"s{i}", "supports", f"r{i}", "claim", strength=0.2))
     return graph
 
@@ -175,10 +175,10 @@ class TestCorrelatedSupport:
                 graph.add_relation(Relation(f"c{i}", rtype, "p", f"r{i}", strength=0.5))
             assert correlated_support(graph) == [], rtype
 
-    @pytest.mark.parametrize(("strength", "reported"), [(0.5, False), (0.0, True)])
-    def test_member_that_is_an_ancestor_of_the_others(self, strength, reported):
-        """Test the chain ``r0 supports r1``: ``r0`` correlates the two supports, unless at strength 0."""
-        graph = pile(2)
+    @pytest.mark.parametrize(("base", "strength", "reported"), [(0.5, 0.5, False), (0.5, 0.0, True), (1.0, 0.5, True)])
+    def test_member_that_is_an_ancestor_of_the_others(self, base, strength, reported):
+        """Test the chain ``r0 supports r1``: ``r0`` correlates the two supports, unless at strength 0 or fixed."""
+        graph = pile(2, base=base)
         graph.add_relation(Relation("chain", "supports", "r0", "r1", strength=strength))
         findings = correlated_support(graph)
         assert [f.nodes for f in findings] == ([("claim", "r0", "r1")] if reported else [])
@@ -216,6 +216,34 @@ class TestCorrelatedSupport:
             graph.add_relation(Relation(f"c{i}", rtype, "p", f"r{i}", strength=0.0))
         (finding,) = correlated_support(graph)
         assert finding.nodes == ("claim", "r0", "r1")
+
+    @pytest.mark.parametrize(("base", "reported"), [(0.0, True), (1.0, True), (0.5, False), (Beta(1, 1e6), False)])
+    def test_fixed_point_parent_is_not_common(self, base, reported):
+        """Test that a shared parent with no parents and a base of 0 or 1 does not silence the group.
+
+        Such a parent takes the same value in every world, so it has no effect on how the supports
+        vary together; a base strictly between 0 and 1, however close to 0, does.
+        """
+        graph = pile(2)
+        graph.add_node(Node("p", base=base, sources=[ANCHOR]))
+        for i in range(2):
+            graph.add_relation(Relation(f"c{i}", "requires", "p", f"r{i}", strength=1.0))
+        findings = correlated_support(graph)
+        assert [f.nodes for f in findings] == ([("claim", "r0", "r1")] if reported else [])
+
+    def test_fixed_base_with_a_parent_can_be_common(self):
+        """Test that a base of 0 does not make a parent fixed when it has a parent of its own.
+
+        ``p`` of base 0 is true with probability 0.5 from a parent ``q`` that is always true, so it
+        varies and correlates the supports, though ``q`` itself does not.
+        """
+        graph = pile(2)
+        graph.add_node(Node("q", base=1.0, sources=[ANCHOR]))
+        graph.add_node(Node("p", base=0.0))
+        graph.add_relation(Relation("qp", "supports", "q", "p", strength=0.5))
+        for i in range(2):
+            graph.add_relation(Relation(f"c{i}", "requires", "p", f"r{i}", strength=1.0))
+        assert correlated_support(graph) == []
 
     def test_one_effective_relation_makes_a_common_parent(self):
         """Test that a parent with a zero-strength and an effective relation into each support still counts."""

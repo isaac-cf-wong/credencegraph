@@ -171,6 +171,28 @@ def _lineage(node: str, parents: dict[str, set[str]], cache: dict[str, set[str]]
     return cache[node]
 
 
+def _fixed_points(graph: Graph, members: dict[str, list[str]], parents: dict[str, set[str]]) -> set[str]:
+    """Find the variables that always take the same value.
+
+    A variable with no parents is true with probability its base, so at a base of mean exactly 0 or 1
+    it never varies. A variable with parents is not counted, whatever its base.
+
+    Args:
+        graph: The graph.
+        members: The node ids of each variable, by representative.
+        parents: The parents of each variable through relations of nonzero strength.
+
+    Returns:
+        The representatives of the variables with no parents and a base of mean 0 or 1.
+    """
+    fixed: set[str] = set()
+    for representative, ids in members.items():
+        base = next((graph.nodes[node_id].base for node_id in ids if graph.nodes[node_id].base is not None), None)
+        if representative not in parents and base is not None and base.mean in (0.0, 1.0):
+            fixed.add(representative)
+    return fixed
+
+
 def correlated_support(graph: Graph, min_supports: int = DEFAULT_MIN_SUPPORTS) -> list[Finding]:
     """Find supports of one node that share a source but no common ancestor.
 
@@ -185,7 +207,8 @@ def correlated_support(graph: Graph, min_supports: int = DEFAULT_MIN_SUPPORTS) -
     others, as in ``p0 supports p1``, ``p0 supports claim``, ``p1 supports claim``. Either way the
     graph already makes them depend on one variable, so inference does not count them as independent.
     A relation of strength exactly 0 does not make a parent: it leaves the child's probability the
-    same whatever the parent's value.
+    same whatever the parent's value. Nor is a fixed point a common ancestor: a variable with no
+    parents and a base of mean exactly 0 or 1 always takes the same value, so it correlates nothing.
     The usual fix is a common parent: a proposition such as "this source's unverified reasoning
     is sound", which each of them requires with strength 1, so that they fail together. A node of
     base b with no other parents then gets at most b + (1 - b) c from the group, c the credence of
@@ -236,6 +259,7 @@ def correlated_support(graph: Graph, min_supports: int = DEFAULT_MIN_SUPPORTS) -
                 supports.setdefault(child, {}).setdefault(parent, []).append(relation.id)
                 if nonzero:
                     effective.setdefault(child, {}).setdefault(parent, []).append(relation.id)
+    fixed = _fixed_points(graph, members, parents)
     findings: list[Finding] = []
     for target in members:
         by_parent = supports.get(target, {})
@@ -245,7 +269,8 @@ def correlated_support(graph: Graph, min_supports: int = DEFAULT_MIN_SUPPORTS) -
                 sharing.setdefault(key, []).append(parent)
         groups: dict[tuple[str, ...], list[tuple[str, str]]] = {}
         for key, group in sharing.items():
-            if len(group) >= count and not set.intersection(*(_lineage(parent, parents, lineage) for parent in group)):
+            common = set.intersection(*(_lineage(parent, parents, lineage) for parent in group))
+            if len(group) >= count and not common - fixed:
                 groups.setdefault(tuple(group), []).append(key)
         for group, keys in groups.items():
             names = ", ".join(repr(parent) for parent in group)
