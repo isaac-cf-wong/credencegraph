@@ -206,9 +206,10 @@ def correlated_support(graph: Graph, min_supports: int = DEFAULT_MIN_SUPPORTS) -
     or ``refutes`` relations, of every one of them, or one of them that is an ancestor of all the
     others, as in ``p0 supports p1``, ``p0 supports claim``, ``p1 supports claim``. Either way the
     graph already makes them depend on one variable, so inference does not count them as independent.
-    A relation of strength exactly 0 does not make a parent: it leaves the child's probability the
-    same whatever the parent's value. Nor is a fixed point a common ancestor: a variable with no
-    parents and a base of mean exactly 0 or 1 always takes the same value, so it correlates nothing.
+    A relation of strength exactly 0 does not make a parent, nor a support: it leaves the child's
+    probability the same whatever the parent's value. Nor is a fixed point a common ancestor: a
+    variable with no parents and a base of mean exactly 0 or 1 always takes the same value, so it
+    correlates nothing.
     The usual fix is a common parent: a proposition such as "this source's unverified reasoning
     is sound", which each of them requires with strength 1, so that they fail together. A node of
     base b with no other parents then gets at most b + (1 - b) c from the group, c the credence of
@@ -232,8 +233,8 @@ def correlated_support(graph: Graph, min_supports: int = DEFAULT_MIN_SUPPORTS) -
         before its repeated supports. Its id is ``correlated-support:<node>:<kind>:<source>``, where
         the kind is ``document`` or the annotation type, or ``variable`` with the supporting variable
         as the source for supports repeated from one variable. Its nodes are the supported node, then
-        the group or the variable; its relations are their ``supports`` relations into the node, for a
-        repeated support only those of nonzero strength. It has no value; its details are
+        the group or the variable; its relations are their ``supports`` relations of nonzero strength
+        into the node. It has no value; its details are
         ``supports``, the size of the group or the number of relations, and ``min_supports``.
 
     Raises:
@@ -246,19 +247,15 @@ def correlated_support(graph: Graph, min_supports: int = DEFAULT_MIN_SUPPORTS) -
     parents: dict[str, set[str]] = {}
     lineage: dict[str, set[str]] = {}
     supports: dict[str, dict[str, list[str]]] = {}
-    effective: dict[str, dict[str, list[str]]] = {}
     for relation in graph.relations.values():
         if relation.type in STRENGTH_TYPES:
             parent, child = root[relation.source], root[relation.target]
             # A term of strength 0 multiplies the child's table by 1 - 0 = 1 at both of the parent's
             # values, so it makes the parent no cause of the child; a Beta strength has a positive mean.
-            nonzero = relation.strength is not None and relation.strength.mean > 0.0
-            if nonzero:
+            if relation.strength is not None and relation.strength.mean > 0.0:
                 parents.setdefault(child, set()).add(parent)
-            if relation.type == SUPPORTS:
-                supports.setdefault(child, {}).setdefault(parent, []).append(relation.id)
-                if nonzero:
-                    effective.setdefault(child, {}).setdefault(parent, []).append(relation.id)
+                if relation.type == SUPPORTS:
+                    supports.setdefault(child, {}).setdefault(parent, []).append(relation.id)
     fixed = _fixed_points(graph, members, parents)
     findings: list[Finding] = []
     for target in members:
@@ -302,7 +299,7 @@ def correlated_support(graph: Graph, min_supports: int = DEFAULT_MIN_SUPPORTS) -
                 relations=tuple(relations),
                 details={"supports": float(len(relations)), "min_supports": float(count)},
             )
-            for parent, relations in effective.get(target, {}).items()
+            for parent, relations in by_parent.items()
             if len(relations) >= count
         )
     return findings
