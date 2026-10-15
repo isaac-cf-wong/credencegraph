@@ -216,6 +216,12 @@ def _cancels(network: Network, variable: Variable, key: ParameterKey, fixed: Map
     ``requires`` strength of exactly 1 with its premise observed false. The coefficients are taken in
     exact rational arithmetic from the parameters' values, so no rounding enters the decision.
 
+    The allowed rows are enumerated one by one: every assignment of the carrier's parents that are
+    not fixed, each evaluated twice in ``Fraction`` arithmetic. The worst case therefore costs
+    ``2 ** (number of free parents)`` row pairs, so the carrier's free-parent count is the scaling
+    limit. The loop returns as soon as it reaches a row that rules cancellation out, so it can stop
+    before the last row; a verdict that it cancels always visits every row.
+
     Args:
         network: The network.
         variable: A proposition variable that carries the parameter.
