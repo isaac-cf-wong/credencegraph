@@ -33,7 +33,7 @@ dev = [
   "hypothesis>=6.169.0",
   "pylatexenc>=2.11",
 ]
-docs = ["zensical>=0.0.69", "mkdocstrings-python>=2.0.9"]
+docs = ["zensical>=0.0.70", "mkdocstrings-python>=2.0.9"]
 build = ["hatch>=1.18.1"]
 release = ["git-cliff>=2.14.2"]
 
