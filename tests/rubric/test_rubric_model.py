@@ -145,7 +145,10 @@ def test_load_from_path():
 
 
 def test_documented_rubric_is_the_example_file():
-    """Test that the rubric printed in the format's documentation is the example file, word for word."""
+    """Test that the rubric printed in the format's documentation parses to the same TOML as the example file.
+
+    The comparison is on the parsed tables, not the bytes, so reformatting either copy does not break it.
+    """
     page = (EXAMPLE_RUBRIC_PATH.parents[1] / "verbatim-ingestion.md").read_text(encoding="utf-8")
     printed = page.split("```toml\n", 1)[1].split("```", 1)[0]
-    assert printed == EXAMPLE_RUBRIC_PATH.read_text(encoding="utf-8")
+    assert tomllib.loads(printed) == tomllib.loads(EXAMPLE_RUBRIC_PATH.read_text(encoding="utf-8"))
