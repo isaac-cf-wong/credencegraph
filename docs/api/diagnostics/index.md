@@ -160,10 +160,12 @@ document or pointing at the same node through an `authored_by` or `derived_from`
 annotation, when no variable is a common ancestor of them through relations of
 nonzero strength: an ancestor of every one of them, or one of them that is an
 ancestor of all the others, as when `p0` supports both `p1` and the node and
-`p1` supports the node. The finding has no value; its `details` hold `supports`,
-the size of the group, and `min_supports`. The fix is a common parent that each
-of them requires with strength 1: the group can then lift a node of base b to at
-most b + (1 − b) c, c the common parent's credence, however large it is. See
+`p1` supports the node. A variable with no parents and a base of mean exactly 0
+or 1 is not a common ancestor: it never varies, so it correlates nothing. The
+finding has no value; its `details` hold `supports`, the size of the group, and
+`min_supports`. The fix is a common parent that each of them requires with
+strength 1: the group can then lift a node of base b to at most b + (1 − b) c, c
+the common parent's credence, however large it is. See
 [Reading the diagnostics](../../reading-diagnostics.md#supports-from-one-source-pile-up)
 for a worked example.
 
