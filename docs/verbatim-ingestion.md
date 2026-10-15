@@ -194,7 +194,9 @@ string, must be found in it:
 - **Units** match a whitespace- or punctuation-delimited token of the text
   exactly; inside LaTeX, the argument of `\mathrm{…}`, `\text{…}` and `\si{…}`
   counts as a token. A unit needs a delimiter only on a side where it starts or
-  ends with a letter or digit, so the `%` of `1.1%` is a token.
+  ends with a letter or digit, so the `%` of `1.1%` is a token. The operators
+  `/`, `^`, `·` and `⋅` join symbols into one compound unit rather than delimit
+  them, so a unit `m` is not found in `3 m/s` or `3 m^2`: write the compound.
 - **Equation references** match `\ref{v}`, `\eqref{v}`, `\cref{v}` or `\Cref{v}`
   for a label `v`, or `(v)` for a printed number `v`.
 

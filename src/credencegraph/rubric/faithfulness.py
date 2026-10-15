@@ -18,6 +18,8 @@ _SIGNS = "+-" + _MINUS
 _GROUP = "(?:,|\N{THIN SPACE}|\N{NARROW NO-BREAK SPACE}|\\\\,)"
 _TIMES = "\N{MULTIPLICATION SIGN}"
 _ALPHANUMERIC = re.compile(r"[^\W_]")
+# The operators that join unit symbols into one compound unit, as in m/s, m^2 and N·m.
+_JOINERS = "[/^\N{MIDDLE DOT}\N{DOT OPERATOR}]"
 
 # A numeral: an optional sign that does not follow a word character or a dot, digits in groups of
 # three or plain, an optional fraction, an optional exponent (1.2e-3, 1.2 x 10^-3 written with a
@@ -84,6 +86,8 @@ def has_unit(text: str, unit: str) -> bool:
     counts as a token too. A boundary is required only where the unit begins or ends with a letter
     or digit: it keeps ``Hz`` from matching inside ``kHz`` or ``100Hz``, while a unit that starts
     with punctuation, such as the ``%`` of ``1.1%``, is itself delimited from the numeral before it.
+    The operators ``/``, ``^``, ``·`` and ``⋅`` join symbols into one compound unit rather than
+    delimit them, so ``m`` is not a token of ``m/s`` or ``m^2``; the compound itself is.
 
     Args:
         text: The text.
@@ -92,8 +96,8 @@ def has_unit(text: str, unit: str) -> bool:
     Returns:
         Whether the unit is a token of the text.
     """
-    before = r"(?<![^\W_])" if _ALPHANUMERIC.match(unit) else ""
-    after = r"(?![^\W_])" if _ALPHANUMERIC.match(unit[-1:]) else ""
+    before = rf"(?<![^\W_]|{_JOINERS})" if _ALPHANUMERIC.match(unit) else ""
+    after = rf"(?![^\W_]|{_JOINERS})" if _ALPHANUMERIC.match(unit[-1:]) else ""
     return re.search(before + re.escape(unit) + after, text) is not None
 
 
