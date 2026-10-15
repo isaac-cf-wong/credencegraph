@@ -47,6 +47,7 @@ ZERO_PROBABILITY = "zero-probability"
 PROBLEM_TOO_LARGE = "problem-too-large"
 INVALID_RUBRIC = "invalid-rubric"
 RUBRIC_VIOLATION = "rubric-violation"
+MISSING_EXTRA = "missing-extra"
 
 ERROR_CODES = (
     FILE_EXISTS,
@@ -62,6 +63,7 @@ ERROR_CODES = (
     PROBLEM_TOO_LARGE,
     INVALID_RUBRIC,
     RUBRIC_VIOLATION,
+    MISSING_EXTRA,
 )
 
 # Why no world satisfies the exclusive relations. If every base and strength lies strictly between 0

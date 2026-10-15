@@ -216,6 +216,12 @@ def _cancels(network: Network, variable: Variable, key: ParameterKey, fixed: Map
     ``requires`` strength of exactly 1 with its premise observed false. The coefficients are taken in
     exact rational arithmetic from the parameters' values, so no rounding enters the decision.
 
+    The allowed rows are enumerated one by one: every assignment of the carrier's parents that are
+    not fixed, each evaluated twice in ``Fraction`` arithmetic. The worst case therefore costs
+    ``2 ** (number of free parents)`` row pairs, so the carrier's free-parent count is the scaling
+    limit. The loop returns as soon as it reaches a row that rules cancellation out, so it can stop
+    before the last row; a verdict that it cancels always visits every row.
+
     Args:
         network: The network.
         variable: A proposition variable that carries the parameter.
@@ -409,8 +415,9 @@ def crux_findings(
         target does not depend on when it is d-separated from it, or when it cancels out of its own
         table under the evidence, decided in exact arithmetic; both are read from the network, not
         from the size of its derivative, so rounding in the engine cannot decide between the two. A
-        derivative that is zero only because contributions through different tables cancel is not
-        detected, and that parameter is still ranked.
+        derivative that is zero only because contributions through different tables cancel, or
+        because the parameter becomes a common factor only once a free parent of its carrier, neither
+        observed nor the target, is summed out, is not detected, and that parameter is still ranked.
     """
     findings = []
     for key, slope in slopes.items():

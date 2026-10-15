@@ -1,13 +1,16 @@
 """The failure contract shared by every command, and the hints each kind of failure carries.
 
-Every failure here is provoked by a real invocation against a real graph file; nothing is stubbed.
+Every failure here is provoked by a real invocation against a real graph file; nothing is stubbed,
+except the absence of the LaTeX reader's dependencies for ``missing-extra``.
 """
 
 from __future__ import annotations
 
 import json
 import re
+import sys
 from pathlib import Path
+from unittest import mock
 
 import pytest
 
@@ -125,11 +128,12 @@ FAILURES = {
     "problem-too-large": ("query", too_large, ("marginal", "child", "--draws", "0")),
     "invalid-rubric": ("annotate", untyped, ("s-1", "--rubric", bad_rubric, "--type", "result")),
     "rubric-violation": ("check", untyped, ("--rubric", RUBRIC)),
+    "missing-extra": ("ingest", lambda tmp: _text(tmp, "Text.", "doc.tex"), (lambda tmp: tmp / "g.json",)),
 }
 
 
-def _text(tmp_path: Path, content: str) -> Path:
-    path = tmp_path / "g.json"
+def _text(tmp_path: Path, content: str, name: str = "g.json") -> Path:
+    path = tmp_path / name
     path.write_text(content, encoding="utf-8")
     return path
 
@@ -140,6 +144,9 @@ def provoke(cli, tmp_path, code, *, as_json=True):
     path = make(tmp_path)
     extra = [item(tmp_path) if callable(item) else item for item in extra]
     args = [command, path, *extra] + (["--json"] if as_json else [])
+    if code == common.MISSING_EXTRA:
+        with mock.patch.dict(sys.modules, {"credencegraph.ingest.latex": None}):
+            return cli.run(*args)
     return cli.run(*args)
 
 
@@ -194,6 +201,7 @@ def test_every_command_is_covered():
     """Test that the failure table exercises the commands; ``coverage`` and ``split`` fail in their own tests."""
     assert {entry[0] for entry in FAILURES.values()} == {
         "init",
+        "ingest",
         "add-node",
         "relate",
         "query",

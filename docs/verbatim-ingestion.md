@@ -11,10 +11,11 @@ description:
 > features are built against. The core part now exists, in
 > `credencegraph.rubric`: text normalisation and the digest, rubric files, the
 > `anchored`, `typed` and `assessed` checks with faithfulness, coverage, and the
-> `check --rubric --level`, `coverage`, `split` and `annotate` commands. Not yet
-> implemented: the ingestion layer (`ingest` and its readers, `missing-extra`),
-> `reanchor`, and `add-node --origin`. The section on what the engine provided
-> before this contract describes it as it was and cites that code.
+> `check --rubric --level`, `coverage`, `split` and `annotate` commands. The
+> ingestion layer has the LaTeX reader and `ingest` (without `--format`, which
+> comes with the PDF reader). Not yet implemented: the PDF reader, `reanchor`,
+> and `add-node --origin`. The section on what the engine provided before this
+> contract describes it as it was and cites that code.
 
 ## Why
 
@@ -513,7 +514,9 @@ every kept, changed, new and removed node id and every dropped relation id.
 Ingestion layer:
 
 - `ingest SOURCE GRAPH [--rubric RUBRIC] [--document ID] [--format latex|pdf] [--force]`
-  writes a graph of document nodes for `SOURCE`.
+  writes a graph of document nodes for `SOURCE`. `--format` is not implemented
+  yet: it comes with the PDF reader, and until then `SOURCE` must be a `.tex`
+  file.
 
 Core:
 
@@ -532,9 +535,9 @@ Core:
 What the commands guarantee:
 
 - `ingest` is named so as not to change `init`, which creates an empty graph.
-  `--format` defaults from the extension (`.tex`, `.pdf`). `--document` sets the
-  anchors' document id and defaults to `SOURCE` as given. Without `--rubric`
-  every chunk starts `unassigned`. The written graph passes
+  `--format`, once implemented, defaults from the extension (`.tex`, `.pdf`).
+  `--document` sets the anchors' document id and defaults to `SOURCE` as given.
+  Without `--rubric` every chunk starts `unassigned`. The written graph passes
   `check --level anchored`.
 - `split --at` takes clauses that occur exactly once in the node's text; each
   must occur, or the command fails and the file is unchanged. Splitting a node

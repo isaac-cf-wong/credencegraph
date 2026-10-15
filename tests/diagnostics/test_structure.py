@@ -322,3 +322,39 @@ class TestCorrelatedSupport:
         (finding,) = correlated_support(graph)
         assert finding.nodes == ("claim", "r0", "x")
         assert finding.relations == ("s0", "s1")
+
+    def test_repeated_supports_from_one_merged_variable(self):
+        """Test that several supports from one variable into one node are reported, whatever its parents.
+
+        Relations from nodes merged as ``equivalent`` are separate noisy-OR terms of one variable, so
+        two of strength 0.2 lift a node of base 0 to 0.36 where one gives 0.2. No common parent can
+        correlate them: they already share their only input.
+        """
+        graph = Graph()
+        graph.add_node(Node("claim", base=0.0))
+        graph.add_node(Node("x", base=1.0))
+        graph.add_node(Node("x2"))
+        graph.add_relation(Relation("eq", "equivalent", "x", "x2"))
+        graph.add_relation(Relation("s0", "supports", "x", "claim", strength=0.2))
+        graph.add_relation(Relation("s1", "supports", "x2", "claim", strength=0.2))
+        graph.add_node(Node("sound", base=0.5))
+        graph.add_relation(Relation("c", "requires", "sound", "x", strength=1.0))
+        (finding,) = correlated_support(graph)
+        assert finding.id == "correlated-support:claim:variable:x"
+        assert finding.nodes == ("claim", "x")
+        assert finding.relations == ("s0", "s1")
+        assert dict(finding.details) == {"supports": 2.0, "min_supports": 2.0}
+        assert finding.message.startswith("node 'claim' has 2 supports from one variable, 'x' (merged with 'x2'):")
+        assert len(finding.message.splitlines()) == 1
+
+    def test_repeated_supports_respect_min_supports_and_zero_strength(self):
+        """Test that one variable's supports are counted against ``min_supports``, skipping strength 0."""
+        graph = Graph()
+        graph.add_node(Node("claim", base=0.0))
+        graph.add_node(Node("x", base=1.0))
+        for i in range(3):
+            graph.add_relation(Relation(f"s{i}", "supports", "x", "claim", strength=0.2))
+        graph.add_relation(Relation("z", "supports", "x", "claim", strength=0.0))
+        assert correlated_support(graph, min_supports=4) == []
+        (finding,) = correlated_support(graph, min_supports=3)
+        assert finding.relations == ("s0", "s1", "s2")

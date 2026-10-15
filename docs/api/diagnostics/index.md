@@ -14,7 +14,7 @@ Every diagnostic returns a list of `Finding` records. A finding has an `id`
 | -------------------------- | --------------------------------------------------------------------------------- |
 | `missing_parameters`       | An inference variable without a `base`                                            |
 | `unanchored`               | An inference variable with no source and no inferential parent                    |
-| `correlated_support`       | Two or more supports of a node that share a source but no common ancestor         |
+| `correlated_support`       | Supports of a node that share a source and no common ancestor, or one variable    |
 | `claims`                   | \|logit(stated) − logit(computed)\| above a threshold (default 2 ln(11/9) ≈ 0.40) |
 | `sensitivity`              | ∂P(T)/∂θ for every parameter θ                                                    |
 | `crux`                     | \|∂P(T)/∂θ\| · sd(θ): T depends on θ _and_ θ is uncertain                         |
@@ -32,7 +32,21 @@ evidence leaves, in exact arithmetic (a `requires` strength whose premise is
 observed true, the base of an observed-true child whose supports are all
 observed, a base multiplied by a `requires` strength of exactly 1 whose premise
 is observed false). A derivative that is zero only because contributions through
-different tables cancel is not detected, and θ is then still ranked.
+different tables cancel is not detected, and θ is then still ranked. Nor is one
+that is zero only because θ becomes a common factor once a free parent of its
+table, neither observed nor T, is summed out: the rows of the table alone do not
+show it. With T refuting an observed-true X and a free root M requiring X, the
+`requires` strength multiplies both values of T alike once M is summed out, yet
+it is still ranked; observing M as well lets the table show it.
+
+The cancellation check enumerates the rows of the carrier's table that the
+evidence leaves, in exact rational arithmetic, so its worst-case cost grows like
+2^k, where k is the number of the carrier's parents not fixed by evidence,
+interventions or `exclusive` constraints; that parent count is the scaling
+limit. The check returns as soon as it reaches a row that rules cancellation
+out, so it can stop before the last row, and `crux` checks only uncertain
+parameters and stops at the first one T depends on. A parameter that does cancel
+always costs the full enumeration.
 
 `diagnose(graph, target)` runs them all. If a parameter is missing the graph
 cannot be compiled, and the report stops after the structural checks.
@@ -152,6 +166,14 @@ of them requires with strength 1: the group can then lift a node of base b to at
 most b + (1 − b) c, c the common parent's credence, however large it is. See
 [Reading the diagnostics](../../reading-diagnostics.md#supports-from-one-source-pile-up)
 for a worked example.
+
+Several `supports` relations from one variable into the same node, such as one
+from each of two nodes merged as `equivalent`, are separate terms of the same
+noisy OR: two of strength 0.2 give a node of base 0 the credence 0.36 where one
+gives 0.2. `correlated_support` also reports at least `min_supports` of them of
+nonzero strength, with the id `correlated-support:<node>:variable:<variable>`,
+whatever the variable's parents: they already share their only input, so no
+common parent can correlate them. The fix is one relation in their place.
 
 <!-- prettier-ignore-start -->
 
