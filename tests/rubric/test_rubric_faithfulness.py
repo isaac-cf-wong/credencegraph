@@ -61,7 +61,14 @@ def test_has_numeral_compares_values():
         ("at $100\\,\\mathrm{Hz}$", "Hz", True),
         ("at \\si{Hz}", "Hz", True),
         ("at 3 m/s", "m/s", True),
-        ("at 3 m/s", "m", True),
+        ("at 3 m/s", "m", False),
+        ("at 3 m/s", "s", False),
+        ("at 3 m/s^2", "m/s", False),
+        ("an area of 3 m^2", "m", False),
+        ("an area of 3 m^2", "m^2", True),
+        ("a torque of 3 N\N{MIDDLE DOT}m", "N", False),
+        ("a torque of 3 N\N{DOT OPERATOR}m", "m", False),
+        ("at 3 m s^{-1}", "m", True),
         ("no unit", "s", False),
         ("a proportion of 1.1%", "%", True),
         ("a proportion of 1.1\\%", "%", True),
@@ -72,7 +79,7 @@ def test_has_numeral_compares_values():
     ],
 )
 def test_has_unit(text, unit, expected):
-    """Test that a unit matches a token delimited by whitespace or punctuation, including LaTeX arguments."""
+    """Test that a unit matches a token delimited by whitespace or punctuation, not part of a compound unit."""
     assert has_unit(text, unit) is expected
 
 
