@@ -254,6 +254,17 @@ class TestCorrelatedSupport:
             graph.add_relation(Relation(f"c{i}", "requires", "p", f"r{i}", strength=Beta(1, 99)))
         assert correlated_support(graph) == []
 
+    @pytest.mark.parametrize("n", [1, 2])
+    def test_zero_strength_support_is_not_a_member(self, n):
+        """Test that a strength-0 support from the same document neither joins a group nor makes one."""
+        graph = pile(n)
+        graph.add_node(Node("q", base=1.0, sources=[ANCHOR]))
+        graph.add_relation(Relation("sq", "supports", "q", "claim", strength=0.0))
+        findings = correlated_support(graph)
+        assert [(f.nodes, f.relations, dict(f.details)) for f in findings] == (
+            [(("claim", "r0", "r1"), ("s0", "s1"), {"supports": 2.0, "min_supports": 2.0})] if n == 2 else []
+        )
+
     def test_min_supports(self):
         """Test that a group smaller than ``min_supports`` is not reported and one that reaches it is."""
         assert len(correlated_support(pile(2))) == 1
