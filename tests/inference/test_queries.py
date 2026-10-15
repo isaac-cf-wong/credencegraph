@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import inspect
+
 import numpy as np
 import pytest
 
@@ -152,3 +154,18 @@ class TestArguments:
         """Test that a target must be an id, ids or an assignment."""
         with pytest.raises(ValidationError, match="must be a node id"):
             joint(network, target)
+
+
+def _draws_block(function):
+    """Return the ``draws:`` entry of a function's ``Args`` section, continuation lines included."""
+    lines = inspect.getdoc(function).splitlines()
+    start = next(i for i, line in enumerate(lines) if line.startswith("    draws: "))
+    end = next(i for i in range(start + 1, len(lines)) if not lines[i].startswith("        "))
+    return "\n".join(lines[start:end])
+
+
+def test_draws_docstrings_agree():
+    """Test that the four band-taking queries document ``draws`` in the same words."""
+    blocks = {function.__name__: _draws_block(function) for function in (marginal, joint, conditional, intervene)}
+    assert "DEFAULT_DRAWS" in blocks["marginal"]
+    assert all(block == blocks["marginal"] for block in blocks.values()), blocks
