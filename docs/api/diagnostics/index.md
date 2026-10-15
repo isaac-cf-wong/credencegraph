@@ -14,7 +14,7 @@ Every diagnostic returns a list of `Finding` records. A finding has an `id`
 | -------------------------- | --------------------------------------------------------------------------------- |
 | `missing_parameters`       | An inference variable without a `base`                                            |
 | `unanchored`               | An inference variable with no source and no inferential parent                    |
-| `correlated_support`       | Two or more supports of a node that share a source but no common parent           |
+| `correlated_support`       | Supports of a node that share a source and no common parent, or one variable      |
 | `claims`                   | \|logit(stated) − logit(computed)\| above a threshold (default 2 ln(11/9) ≈ 0.40) |
 | `sensitivity`              | ∂P(T)/∂θ for every parameter θ                                                    |
 | `crux`                     | \|∂P(T)/∂θ\| · sd(θ): T depends on θ _and_ θ is uncertain                         |
@@ -150,6 +150,14 @@ them requires with strength 1: the group can then lift a node of base b to at
 most b + (1 − b) c, c the common parent's credence, however large it is. See
 [Reading the diagnostics](../../reading-diagnostics.md#supports-from-one-source-pile-up)
 for a worked example.
+
+Several `supports` relations from one variable into the same node, such as one
+from each of two nodes merged as `equivalent`, are separate terms of the same
+noisy OR: two of strength 0.2 give a node of base 0 the credence 0.36 where one
+gives 0.2. `correlated_support` also reports at least `min_supports` of them of
+nonzero strength, with the id `correlated-support:<node>:variable:<variable>`,
+whatever the variable's parents: they already share their only input, so no
+common parent can correlate them. The fix is one relation in their place.
 
 <!-- prettier-ignore-start -->
 

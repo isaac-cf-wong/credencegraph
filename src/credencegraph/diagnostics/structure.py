@@ -177,16 +177,24 @@ def correlated_support(graph: Graph, min_supports: int = DEFAULT_MIN_SUPPORTS) -
     Nodes merged by ``equivalent`` relations are one variable, named after the earliest of them, with
     the sources of all of them. A group that shares several sources is reported once, under the first.
 
+    Several ``supports`` relations from one variable into the same node, for example one from each
+    of two merged nodes, are separate terms of the noisy OR too: two of strength 0.2 lift a node of
+    base 0 to 0.36 where one gives 0.2. At least ``min_supports`` of them of nonzero strength are
+    reported whatever the variable's parents, since no common parent can correlate terms that
+    already share their only input; the fix is one relation in their place.
+
     Args:
         graph: The graph.
         min_supports: The smallest group reported, at least 2; the default, 2, reports any two.
 
     Returns:
-        One finding per node and group, the nodes in insertion order. Its id is
-        ``correlated-support:<node>:<kind>:<source>``, where the kind is ``document`` or the annotation
-        type. Its nodes are the supported node, then the group; its relations are the group's
-        ``supports`` relations into the node. It has no value; its details are ``supports``, the size
-        of the group, and ``min_supports``.
+        One finding per node and group, the nodes in insertion order, and for each node its groups
+        before its repeated supports. Its id is ``correlated-support:<node>:<kind>:<source>``, where
+        the kind is ``document`` or the annotation type, or ``variable`` with the supporting variable
+        as the source for supports repeated from one variable. Its nodes are the supported node, then
+        the group or the variable; its relations are their ``supports`` relations into the node, for a
+        repeated support only those of nonzero strength. It has no value; its details are
+        ``supports``, the size of the group or the number of relations, and ``min_supports``.
 
     Raises:
         ValidationError: If ``min_supports`` is not an integer >= 2.
@@ -197,15 +205,19 @@ def correlated_support(graph: Graph, min_supports: int = DEFAULT_MIN_SUPPORTS) -
     provenance = _provenance(graph, members, root)
     parents: dict[str, set[str]] = {}
     supports: dict[str, dict[str, list[str]]] = {}
+    effective: dict[str, dict[str, list[str]]] = {}
     for relation in graph.relations.values():
         if relation.type in STRENGTH_TYPES:
             parent, child = root[relation.source], root[relation.target]
             # A term of strength 0 multiplies the child's table by 1 - 0 = 1 at both of the parent's
             # values, so it makes the parent no cause of the child; a Beta strength has a positive mean.
-            if relation.strength is not None and relation.strength.mean > 0.0:
+            nonzero = relation.strength is not None and relation.strength.mean > 0.0
+            if nonzero:
                 parents.setdefault(child, set()).add(parent)
             if relation.type == SUPPORTS:
                 supports.setdefault(child, {}).setdefault(parent, []).append(relation.id)
+                if nonzero:
+                    effective.setdefault(child, {}).setdefault(parent, []).append(relation.id)
     findings: list[Finding] = []
     for target in members:
         by_parent = supports.get(target, {})
@@ -234,4 +246,20 @@ def correlated_support(graph: Graph, min_supports: int = DEFAULT_MIN_SUPPORTS) -
                     details={"supports": float(len(group)), "min_supports": float(count)},
                 )
             )
+        findings.extend(
+            Finding(
+                id=f"{CORRELATED_SUPPORT}:{target}:variable:{parent}",
+                diagnostic=CORRELATED_SUPPORT,
+                message=(
+                    f"node {target!r} has {len(relations)} supports from one variable, "
+                    f"{_describe(members[parent])}: inference counts them as independent reasons; "
+                    "if they are one reason, replace them with a single supports relation"
+                ),
+                nodes=(target, parent),
+                relations=tuple(relations),
+                details={"supports": float(len(relations)), "min_supports": float(count)},
+            )
+            for parent, relations in effective.get(target, {}).items()
+            if len(relations) >= count
+        )
     return findings
