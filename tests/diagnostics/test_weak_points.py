@@ -33,7 +33,15 @@ from credencegraph.diagnostics import (
     single_points_of_failure,
     value_of_information,
 )
-from credencegraph.inference import Engine, Enumeration, Query, VariableElimination, ZeroProbabilityError, marginal
+from credencegraph.inference import (
+    Engine,
+    Enumeration,
+    Query,
+    VariableElimination,
+    ZeroProbabilityError,
+    conditional,
+    marginal,
+)
 from credencegraph.semantics import ParameterKey, compile_graph
 
 ENGINES = [pytest.param(VariableElimination(), id="elimination"), pytest.param(Enumeration(), id="enumeration")]
@@ -299,6 +307,35 @@ def test_crux_when_an_active_support_is_common_to_the_observed_child(engine, sup
     findings = crux(network, "T", evidence={"X": False, "S": True}, engine=engine)
     uncertain = "crux:base:X" if support == 0.5 else "crux:strength:SX"
     assert by_id(findings)[uncertain].value > 0.0
+
+
+@pytest.mark.parametrize("engine", ENGINES)
+def test_crux_still_ranks_a_strength_common_only_after_a_free_parent_is_summed_out(engine):
+    """Test the declared exclusion: a cancellation that needs a free parent summed out is not detected.
+
+    T refutes X with strength f and M requires X with a Beta strength r, so
+    P(X = 1 | T, M) = x N (1 - f)^T with N = 1 if M else 1 - r. With X observed true and M free,
+    summing M out leaves the factor E[N] = m + (1 - m)(1 - r) on both values of T, so
+    P(T | X) = p (1 - f) / (p (1 - f) + 1 - p) does not depend on r. No single row of X's table shows
+    that, since N is 1 in one row and 1 - r in the other, so r is still ranked, with a crux of
+    rounding size. Observing M false as well leaves one row, where r is a common factor, and the
+    structural finding fires.
+    """
+    p, f = 0.4, 0.61
+    graph = Graph()
+    graph.add_node(Node("T", base=p))
+    graph.add_node(Node("M", base=0.5))
+    graph.add_node(Node("X", base=0.5))
+    graph.add_relation(Relation("TX", "refutes", "T", "X", strength=f))
+    graph.add_relation(Relation("MX", "requires", "M", "X", strength=Beta(2, 2)))
+    network = compile_graph(graph)
+    answer = conditional(network, "T", {"X": True}, engine=engine, draws=0)
+    close(answer.point, p * (1 - f) / (p * (1 - f) + 1 - p))
+    findings = crux(network, "T", evidence={"X": True}, engine=engine)
+    assert findings[0].id == "crux:strength:MX"
+    assert abs(findings[0].details["derivative"]) < 1e-12
+    findings = crux(network, "T", evidence={"X": True, "M": False}, engine=engine)
+    assert [(finding.id, finding.value) for finding in findings] == [("crux:T", None)]
 
 
 @pytest.mark.parametrize("engine", ENGINES)

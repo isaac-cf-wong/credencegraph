@@ -415,8 +415,9 @@ def crux_findings(
         target does not depend on when it is d-separated from it, or when it cancels out of its own
         table under the evidence, decided in exact arithmetic; both are read from the network, not
         from the size of its derivative, so rounding in the engine cannot decide between the two. A
-        derivative that is zero only because contributions through different tables cancel is not
-        detected, and that parameter is still ranked.
+        derivative that is zero only because contributions through different tables cancel, or
+        because the parameter becomes a common factor only once a free parent of its carrier, neither
+        observed nor the target, is summed out, is not detected, and that parameter is still ranked.
     """
     findings = []
     for key, slope in slopes.items():
