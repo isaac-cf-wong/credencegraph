@@ -10,7 +10,19 @@ from credencegraph.core.node import DEFAULT_KIND
 from credencegraph.diagnostics import DEFAULT_CLAIM_THRESHOLD, DEFAULT_FAILURE_THRESHOLD
 from credencegraph.inference import DEFAULT_DRAWS
 
-COMMANDS = ("version", "init", "add-node", "relate", "query", "diagnose", "check", "coverage", "split", "annotate")
+COMMANDS = (
+    "version",
+    "init",
+    "ingest",
+    "add-node",
+    "relate",
+    "query",
+    "diagnose",
+    "check",
+    "coverage",
+    "split",
+    "annotate",
+)
 
 
 @pytest.fixture(scope="module")
@@ -50,9 +62,9 @@ def test_every_command_takes_json(group, name):
     assert option.default is False
 
 
-@pytest.mark.parametrize("name", [name for name in COMMANDS if name != "version"])
+@pytest.mark.parametrize("name", [name for name in COMMANDS if name not in {"version", "ingest"}])
 def test_graph_path_is_the_first_argument(group, name):
-    """Test that every graph command takes the graph file as its first, required argument."""
+    """Test that every graph command takes the graph file as its first, required argument; ``ingest`` takes it second."""
     first = group.commands[name].params[0]
     assert first.param_type_name == "argument"
     assert first.name == "path"
@@ -63,6 +75,7 @@ def test_graph_path_is_the_first_argument(group, name):
     ("name", "arguments"),
     [
         ("init", ["path"]),
+        ("ingest", ["source", "path"]),
         ("add-node", ["path"]),
         ("relate", ["path", "source", "target"]),
         ("query", ["path", "kind", "targets"]),
@@ -83,6 +96,9 @@ def test_positional_arguments(group, name, arguments):
     ("name", "option", "opts", "flags"),
     [
         ("init", "force", ["--force"], (False, False)),
+        ("ingest", "rubric", ["--rubric"], (False, False)),
+        ("ingest", "document", ["--document"], (False, False)),
+        ("ingest", "force", ["--force"], (False, False)),
         ("add-node", "node_id", ["--id"], (True, False)),
         ("add-node", "statement", ["--statement"], (False, False)),
         ("add-node", "kind", ["--kind"], (False, False)),

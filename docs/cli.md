@@ -31,6 +31,7 @@ credencegraph diagnose g.json --target signal --targets stated
 | Command    | Does                                                                                                |
 | ---------- | --------------------------------------------------------------------------------------------------- |
 | `init`     | Create an empty graph file; `--force` replaces an existing one.                                     |
+| `ingest`   | Build a graph of document nodes from a LaTeX document `SOURCE GRAPH`; see below.                    |
 | `add-node` | Add a node: `--id`, and optionally `--statement`, `--kind`, `--base`, `--stated`, `--source`.       |
 | `relate`   | Add a relation `SOURCE TARGET --type TYPE`, with `--strength` where the type needs one.             |
 | `query`    | `marginal`, `joint`, `conditional` or `intervene`, with `--given`, `--set`, `--draws`, `--seed`.    |
@@ -105,6 +106,41 @@ credencegraph coverage paper.json --rubric methods.toml
 
 A rubric file that cannot be read is an `invalid-rubric` error, or
 `file-not-found` when it does not exist.
+
+## Ingesting a LaTeX document
+
+```bash
+pip install 'credencegraph[ingest]'
+credencegraph ingest paper/main.tex paper.json --rubric methods.toml
+```
+
+`ingest SOURCE GRAPH [--rubric RUBRIC] [--document ID] [--force]` reads the main
+`.tex` file of a document and writes a graph with one document node per chunk: a
+sentence of running prose, a display equation, a caption, a footnote or a
+bibliography entry. The written graph passes `check --level anchored`; every
+node is `unassigned`, unless `--rubric` gives its unit an initial type.
+
+- `\input` and `\include` are followed, relative to the main file's directory.
+  Macros defined with `\newcommand`, `\renewcommand`, `\providecommand` or
+  `\def` are expanded; any other macro stays as written.
+- Each node keeps the LaTeX source of its chunk, with comments, `\label` and
+  footnotes removed, so inline mathematics, `\ref` and `\cite` stay in the text.
+  Headings are not nodes.
+- A display (`\[ \]`, `$$ $$`, `equation`, `align`, …) is one equation node; its
+  `\label`, if any, is `attributes.label`, a list when it has several.
+- The bibliography is a `thebibliography` in the document, or `<main>.bbl`
+  beside the main file when the document uses `\bibliography`. A reference node
+  carries its key as `attributes.key`, and each citation is a `cites` relation
+  from the citing node to it. Keys that name no entry are listed in
+  `unresolved_citations`.
+- Locators are `file=<path relative to the main file>;lines=<first>-<last>`.
+- `--document` sets the anchors' document id, `SOURCE` as given by default.
+
+Sentences are split at `.`, `?` or `!` followed by a space and a word not in
+lower case, except after common abbreviations and initials, and at paragraph
+breaks, headings, list items and displays. A display inside a sentence ends it,
+so the text after the display starts a new node. Without the `ingest` extra the
+command fails with `missing-extra`.
 
 ## Diagnosing under evidence
 
@@ -234,8 +270,8 @@ A failure exits with status 1 and prints an `error` object instead:
 The `code` is stable and meant for programs; the `message` and `hint` are for
 people. The codes are `file-exists`, `file-not-found`, `io-error`,
 `invalid-graph`, `invalid-argument`, `duplicate-id`, `unknown-node`, `cycle`,
-`compile-error`, `zero-probability`, `problem-too-large`, `invalid-rubric` and
-`rubric-violation`.
+`compile-error`, `zero-probability`, `problem-too-large`, `invalid-rubric`,
+`rubric-violation` and `missing-extra`.
 
 A graph that cannot be compiled for inference is a `compile-error`, whichever
 command meets it: an inference variable without a base, equivalent nodes with
