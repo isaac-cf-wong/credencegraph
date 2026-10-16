@@ -7,8 +7,9 @@ import inspect
 import numpy as np
 import pytest
 
-from credencegraph.core import Graph, Node, Relation, ValidationError
+from credencegraph.core import Beta, Graph, Node, Relation, ValidationError
 from credencegraph.inference import (
+    DEFAULT_DRAWS,
     Answer,
     Enumeration,
     Query,
@@ -164,8 +165,52 @@ def _draws_block(function):
     return "\n".join(lines[start:end])
 
 
-def test_draws_docstrings_agree():
-    """Test that the four band-taking queries document ``draws`` in the same words."""
-    blocks = {function.__name__: _draws_block(function) for function in (marginal, joint, conditional, intervene)}
-    assert "DEFAULT_DRAWS" in blocks["marginal"]
-    assert all(block == blocks["marginal"] for block in blocks.values()), blocks
+# What each band-taking query says about ``draws``. The docstrings are held to this text, and the text
+# is held to the code below, so a rewrite that keeps the four blocks equal but untrue still fails.
+DRAWS_DOC = """\
+    draws: The number of parameter draws behind the band. Each draw answers the query exactly once
+        more, so the default band costs ``DEFAULT_DRAWS`` exact inferences; 0 skips the band and
+        gives the point answer alone."""
+
+BAND_QUERIES = [
+    pytest.param(marginal, ("A",), id="marginal"),
+    pytest.param(joint, (["A"],), id="joint"),
+    pytest.param(conditional, ("A", {"B": True}), id="conditional"),
+    pytest.param(intervene, ("A", {"B": True}), id="intervene"),
+]
+
+
+class CountingEngine(VariableElimination):
+    """Variable elimination that counts the exact inferences it is asked for."""
+
+    def __init__(self):
+        """Start the count at zero."""
+        super().__init__()
+        self.calls = 0
+
+    def query(self, network, query):
+        """Count the call, then answer it."""
+        self.calls += 1
+        return super().query(network, query)
+
+
+@pytest.mark.parametrize("function", [marginal, joint, conditional, intervene])
+def test_draws_docstring(function):
+    """Test that each band-taking query documents ``draws`` in the shared words."""
+    assert _draws_block(function) == DRAWS_DOC
+
+
+@pytest.mark.parametrize(("function", "args"), BAND_QUERIES)
+def test_draws_docstring_is_true(function, args):
+    """Test the shared ``draws`` text against the code: default, cost per draw, and 0."""
+    graph = Graph()
+    graph.add_node(Node("A", base=Beta(2, 2)))
+    graph.add_node(Node("B", base=0.5))
+    network = compile_graph(graph)
+    assert inspect.signature(function).parameters["draws"].default == DEFAULT_DRAWS
+    engine = CountingEngine()
+    answer = function(network, *args, engine=engine, rng=0)
+    assert (answer.draws, engine.calls) == (DEFAULT_DRAWS, 1 + DEFAULT_DRAWS)
+    engine = CountingEngine()
+    answer = function(network, *args, engine=engine, draws=0)
+    assert (answer.band, answer.draws, engine.calls) == (None, 0, 1)
