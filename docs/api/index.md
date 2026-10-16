@@ -13,7 +13,8 @@ until 1.0, any minor release may change it.
 - **[Semantics](semantics)** – Conditional probability tables and compiling a
   graph into a network.
 - **[Inference](inference)** – Exact engines and the four query types.
-- **[Diagnostics](diagnostics)** – Structural checks, overclaims, and the weak
-  points of a target: sensitivity, crux, single points of failure and value of
-  information.
+- **[Diagnostics](diagnostics)** – Structural checks (missing parameters,
+  unanchored variables and correlated support), the claims check for overclaims
+  and underclaims, and the weak points of a target: sensitivity, crux, single
+  points of failure, failure impact and value of information.
 - **[Utility](utils)** – Utility functions.
