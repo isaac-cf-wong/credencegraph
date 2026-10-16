@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 import pytest
 
 from credencegraph.core import Beta, Graph, Node, Relation, SourceAnchor, ValidationError
@@ -169,7 +171,8 @@ class TestCorrelatedSupport:
     def test_any_inferential_type_makes_a_common_parent(self):
         """Test that a common parent through supports or refutes counts as one through requires does."""
         for rtype in ("supports", "refutes"):
-            graph = pile(2)
+            # Supports of base 1 would be true whatever ``p`` is; a base of 0.5 lets ``p`` move them.
+            graph = pile(2, base=0.5)
             graph.add_node(Node("p", base=0.5))
             for i in range(2):
                 graph.add_relation(Relation(f"c{i}", rtype, "p", f"r{i}", strength=0.5))
@@ -186,7 +189,7 @@ class TestCorrelatedSupport:
     @pytest.mark.parametrize(("strength", "reported"), [(0.9, False), (0.0, True)])
     def test_common_grandparent(self, strength, reported):
         """Test that a variable reaching every support through a chain of parents is a common ancestor."""
-        graph = pile(3)
+        graph = pile(3, base=0.5)
         graph.add_node(Node("root", base=0.5, sources=[ANCHOR]))
         graph.add_node(Node("mid", base=0.5, sources=[ANCHOR]))
         graph.add_relation(Relation("rm", "requires", "root", "mid", strength=strength))
@@ -244,6 +247,34 @@ class TestCorrelatedSupport:
         for i in range(2):
             graph.add_relation(Relation(f"c{i}", "requires", "p", f"r{i}", strength=1.0))
         assert correlated_support(graph) == []
+
+    @pytest.mark.parametrize(
+        ("chain", "reported"),
+        [
+            ([("q", 0.5, "supports", 0.5), ("p", 1.0, None, None)], True),
+            ([("q", 0.5, "supports", 0.5), ("p", 0.9, None, None)], False),
+            ([("q", 1.0, "refutes", 1.0), ("p", 0.5, None, None)], True),
+            ([("q", 0.5, "supports", 0.5), ("p", 1.0, "supports", 1.0), ("m", 0.5, None, None)], True),
+        ],
+    )
+    def test_parent_fixed_through_its_parents_is_not_common(self, chain, reported):
+        """Test that a shared parent that always takes one value because of its own parents does not silence the group.
+
+        Each link ``(node, base, type, strength)`` relates the node to the next, and the last requires
+        both supports. ``p`` of base 1 with only a supports parent is true with probability
+        b P + 1 - P = 1 whatever ``q`` is, so neither it nor ``q`` above it moves the supports; at
+        base 0.9 it does. ``p`` refuted with strength 1 by an always-true ``q`` is always false, and
+        ``m``, supported with strength 1 by the always-true ``p``, is always true.
+        """
+        graph = pile(2, base=0.5)
+        for node_id, base, _, _ in chain:
+            graph.add_node(Node(node_id, base=base))
+        for (source, _, rtype, strength), (target, *_) in pairwise(chain):
+            graph.add_relation(Relation(f"{source}{target}", rtype, source, target, strength=strength))
+        for i in range(2):
+            graph.add_relation(Relation(f"c{i}", "requires", chain[-1][0], f"r{i}", strength=1.0))
+        findings = correlated_support(graph)
+        assert [f.nodes for f in findings] == ([("claim", "r0", "r1")] if reported else [])
 
     def test_one_effective_relation_makes_a_common_parent(self):
         """Test that a parent with a zero-strength and an effective relation into each support still counts."""

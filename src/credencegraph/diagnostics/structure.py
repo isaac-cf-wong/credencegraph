@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+from fractions import Fraction
+from itertools import product
+
+from credencegraph.core.credence import Credence
 from credencegraph.core.errors import ValidationError
 from credencegraph.core.graph import Graph
 from credencegraph.core.relation import STRENGTH_TYPES, SUPPORTS
 from credencegraph.diagnostics.records import CORRELATED_SUPPORT, MISSING_PARAMETER, UNANCHORED, Finding
 from credencegraph.semantics.compiler import inference_sets
+from credencegraph.semantics.cpt import Term, true_probability
 
 # Annotation types that name where a node's content came from: two nodes that point at the same node
 # through one of them share a source, as two nodes anchored in the same document do.
@@ -171,25 +176,76 @@ def _lineage(node: str, parents: dict[str, set[str]], cache: dict[str, set[str]]
     return cache[node]
 
 
-def _fixed_points(graph: Graph, members: dict[str, list[str]], parents: dict[str, set[str]]) -> set[str]:
-    """Find the variables that always take the same value.
+def _constant(base: Credence | None, terms: list[tuple[str, str, Fraction]], fixed: dict[str, int]) -> int | None:
+    """Evaluate a variable that might always take the same value.
 
-    A variable with no parents is true with probability its base, so at a base of mean exactly 0 or 1
-    it never varies. A variable with parents is not counted, whatever its base.
+    Args:
+        base: The variable's base, or None if it has none.
+        terms: The type, parent and strength of each relation of nonzero strength into it.
+        fixed: The value of each fixed variable.
+
+    Returns:
+        The variable's value, 0 or 1, if its table gives exactly that probability at every value of
+        its parents that are not in ``fixed``, with those in ``fixed`` at their value; otherwise None.
+    """
+    if base is None:
+        return None
+    prior = Fraction(base.mean)
+    axes = list(dict.fromkeys(parent for _, parent, _ in terms))
+    rows = [Term(axes.index(parent), rtype, strength) for rtype, parent, strength in terms]
+    known = {parent: fixed[parent] for parent in axes if parent in fixed}
+    free = [parent for parent in axes if parent not in known]
+    seen = None
+    for assignment in product((0, 1), repeat=len(free)):
+        known.update(zip(free, assignment, strict=True))
+        value = true_probability(prior, rows, [known[parent] for parent in axes])
+        if value not in (0, 1) or (seen is not None and value != seen):
+            return None
+        seen = value
+    return int(seen)  # product yields at least the empty assignment, so seen is set
+
+
+def _fixed_points(
+    graph: Graph,
+    members: dict[str, list[str]],
+    parents: dict[str, set[str]],
+    terms: dict[str, list[tuple[str, str, Fraction]]],
+) -> dict[str, int]:
+    """Find the variables that always take the same value, and that value.
+
+    A variable is fixed when its table gives one probability, exactly 0 or 1, at every value of its
+    parents that are not fixed, with the fixed ones at their value. A variable with no parents is
+    fixed at a base of mean 0 or 1, and so is, for example, one of base 1 whose parents only support
+    it: it is true with probability b P + 1 - P = 1 whatever they are. Parameters are taken at their
+    means, in ``Fraction`` arithmetic, so no rounding makes or unmakes a fixed point. A variable on a
+    cycle of relations, or below one, is not counted.
 
     Args:
         graph: The graph.
         members: The node ids of each variable, by representative.
         parents: The parents of each variable through relations of nonzero strength.
+        terms: The type, parent and strength of each of those relations, by child.
 
     Returns:
-        The representatives of the variables with no parents and a base of mean 0 or 1.
+        The value of each fixed variable, by representative.
     """
-    fixed: set[str] = set()
-    for representative, ids in members.items():
-        base = next((graph.nodes[node_id].base for node_id in ids if graph.nodes[node_id].base is not None), None)
-        if representative not in parents and base is not None and base.mean in (0.0, 1.0):
-            fixed.add(representative)
+    children: dict[str, list[str]] = {}
+    for child, own in parents.items():
+        for parent in own:
+            children.setdefault(parent, []).append(child)
+    waiting = {representative: len(parents.get(representative, ())) for representative in members}
+    ready = [representative for representative, count in waiting.items() if count == 0]
+    fixed: dict[str, int] = {}
+    while ready:
+        representative = ready.pop()
+        base = next((graph.nodes[i].base for i in members[representative] if graph.nodes[i].base is not None), None)
+        value = _constant(base, terms.get(representative, []), fixed)
+        if value is not None:
+            fixed[representative] = value
+        for child in children.get(representative, ()):
+            waiting[child] -= 1
+            if waiting[child] == 0:
+                ready.append(child)
     return fixed
 
 
@@ -207,9 +263,10 @@ def correlated_support(graph: Graph, min_supports: int = DEFAULT_MIN_SUPPORTS) -
     others, as in ``p0 supports p1``, ``p0 supports claim``, ``p1 supports claim``. Either way the
     graph already makes them depend on one variable, so inference does not count them as independent.
     A relation of strength exactly 0 does not make a parent, nor a support: it leaves the child's
-    probability the same whatever the parent's value. Nor is a fixed point a common ancestor: a
-    variable with no parents and a base of mean exactly 0 or 1 always takes the same value, so it
-    correlates nothing.
+    probability the same whatever the parent's value. Nor is a fixed point a common ancestor, nor an
+    ancestor through it: a variable that always takes the same value, whether it has no parents and
+    a base of mean exactly 0 or 1 or has a table that gives it that value whatever its parents are,
+    as with a base of 1 and only ``supports`` parents, correlates nothing and passes nothing on.
     The usual fix is a common parent: a proposition such as "this source's unverified reasoning
     is sound", which each of them requires with strength 1, so that they fail together. A node of
     base b with no other parents then gets at most b + (1 - b) c from the group, c the credence of
@@ -247,6 +304,7 @@ def correlated_support(graph: Graph, min_supports: int = DEFAULT_MIN_SUPPORTS) -
     parents: dict[str, set[str]] = {}
     lineage: dict[str, set[str]] = {}
     supports: dict[str, dict[str, list[str]]] = {}
+    terms: dict[str, list[tuple[str, str, Fraction]]] = {}
     for relation in graph.relations.values():
         if relation.type in STRENGTH_TYPES:
             parent, child = root[relation.source], root[relation.target]
@@ -254,9 +312,12 @@ def correlated_support(graph: Graph, min_supports: int = DEFAULT_MIN_SUPPORTS) -
             # values, so it makes the parent no cause of the child; a Beta strength has a positive mean.
             if relation.strength is not None and relation.strength.mean > 0.0:
                 parents.setdefault(child, set()).add(parent)
+                terms.setdefault(child, []).append((relation.type, parent, Fraction(relation.strength.mean)))
                 if relation.type == SUPPORTS:
                     supports.setdefault(child, {}).setdefault(parent, []).append(relation.id)
-    fixed = _fixed_points(graph, members, parents)
+    fixed = _fixed_points(graph, members, parents, terms)
+    # A fixed variable takes its value whatever its parents are, so nothing above it reaches its descendants.
+    effective = {child: own for child, own in parents.items() if child not in fixed}
     findings: list[Finding] = []
     for target in members:
         by_parent = supports.get(target, {})
@@ -266,8 +327,8 @@ def correlated_support(graph: Graph, min_supports: int = DEFAULT_MIN_SUPPORTS) -
                 sharing.setdefault(key, []).append(parent)
         groups: dict[tuple[str, ...], list[tuple[str, str]]] = {}
         for key, group in sharing.items():
-            common = set.intersection(*(_lineage(parent, parents, lineage) for parent in group))
-            if len(group) >= count and not common - fixed:
+            common = set.intersection(*(_lineage(parent, effective, lineage) for parent in group))
+            if len(group) >= count and not common - fixed.keys():
                 groups.setdefault(tuple(group), []).append(key)
         for group, keys in groups.items():
             names = ", ".join(repr(parent) for parent in group)
