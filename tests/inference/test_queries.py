@@ -165,8 +165,10 @@ def _draws_block(function):
     return "\n".join(lines[start:end])
 
 
-# What each band-taking query says about ``draws``. The docstrings are held to this text, and the text
-# is held to the code below, so a rewrite that keeps the four blocks equal but untrue still fails.
+# What each band-taking query says about ``draws``. Each docstring's ``draws:`` block is compared with this
+# text; the behaviour the text describes is pinned separately, by the fixed expectations in
+# ``test_draws_docstring_is_true``. Neither check reads the words for meaning, so rewriting this text and
+# all four blocks together, with the code unchanged, is not caught.
 DRAWS_DOC = """\
     draws: The number of parameter draws behind the band. Each draw answers the query exactly once
         more, so the default band costs ``DEFAULT_DRAWS`` exact inferences; 0 skips the band and
