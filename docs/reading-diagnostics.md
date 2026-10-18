@@ -180,7 +180,8 @@ share a source and no common ancestor. Two supports share a source when they are
 anchored in the same document, or when each points at the same node through an
 `authored_by` or `derived_from` annotation. Annotations never change a credence,
 so recording where a reason came from is free: the diagnostic reads it,
-inference does not.
+inference does not. `credencegraph diagnose --min-supports N` reports only
+groups of at least N supports, N ≥ 2; the default, 2, reports any two.
 
 **Give the shared source a proposition of its own.** Add `sound`, "this source's
 unverified reasoning is sound", with the credence c you would defend for it, and
