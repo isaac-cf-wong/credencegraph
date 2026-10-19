@@ -188,9 +188,8 @@ exports have no entries of their own. The defaults `DEFAULT_CLAIM_THRESHOLD`,
 `DEFAULT_FAILURE_THRESHOLD` and `DEFAULT_MIN_SUPPORTS` appear by name in the
 signatures and parameter tables of the functions that take them; the finding
 kinds, such as `OVERCLAIM`, and `PROVENANCE_TYPES` appear in no signature or
-parameter table. The module
-`credencegraph.diagnostics.weak_points` also defines `Interventions`,
-`interventions`, `sensitivity_findings`, `crux_findings`,
+parameter table. The module `credencegraph.diagnostics.weak_points` also defines
+`Interventions`, `interventions`, `sensitivity_findings`, `crux_findings`,
 `single_point_of_failure_findings` and `failure_impact_findings`, which
 `diagnose` and `diagnose_many` use to build their reports. They are internal to
 the diagnostics package, not exported by `credencegraph.diagnostics` and not
