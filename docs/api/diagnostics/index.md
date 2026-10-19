@@ -181,6 +181,15 @@ nonzero strength, with the id `correlated-support:<node>:variable:<variable>`,
 whatever the variable's parents: they already share their only input, so no
 common parent can correlate them. The fix is one relation in their place.
 
+The reference below covers what `credencegraph.diagnostics` exports. The module
+`credencegraph.diagnostics.weak_points` also defines `Interventions`,
+`interventions`, `sensitivity_findings`, `crux_findings`,
+`single_point_of_failure_findings` and `failure_impact_findings`, which
+`diagnose` and `diagnose_many` use to build their reports. They are internal to
+the diagnostics package, not exported by `credencegraph.diagnostics` and not
+part of its public API, so they are not documented here; call the diagnostics
+above instead.
+
 <!-- prettier-ignore-start -->
 
 ::: credencegraph.diagnostics
