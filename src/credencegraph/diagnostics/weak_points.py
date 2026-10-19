@@ -367,6 +367,9 @@ def sensitivity_findings(
 ) -> list[Finding]:
     """Turn derivatives into sensitivity findings.
 
+    Internal to the diagnostics package, for ``diagnose`` and ``diagnose_many``; not exported by
+    ``credencegraph.diagnostics`` and not part of its public API.
+
     Args:
         network: The network.
         target: The id of the target node.
@@ -401,6 +404,9 @@ def crux_findings(
     evidence: Mapping[str, bool] | None = None,
 ) -> list[Finding]:
     """Turn derivatives into crux findings.
+
+    Internal to the diagnostics package, for ``diagnose`` and ``diagnose_many``; not exported by
+    ``credencegraph.diagnostics`` and not part of its public API.
 
     Args:
         network: The network.
@@ -533,6 +539,9 @@ def _others(network: Network, target: str, evidence: Mapping[str, bool]) -> list
 class Interventions:
     """The failure of each other variable in turn, shared by the single-point-of-failure diagnostics.
 
+    Internal to the diagnostics package, for ``diagnose`` and ``diagnose_many``; not exported by
+    ``credencegraph.diagnostics`` and not part of its public API.
+
     Attributes:
         target: The id of the target node.
         query: The query for ``P(target | evidence)``.
@@ -561,6 +570,9 @@ def interventions(
     engine: Engine | None = None,
 ) -> Interventions:
     """Fail each other variable in turn, for ``single_points_of_failure`` and ``failure_impact``.
+
+    Internal to the diagnostics package, for ``diagnose`` and ``diagnose_many``; not exported by
+    ``credencegraph.diagnostics`` and not part of its public API.
 
     Args:
         network: The network.
@@ -604,6 +616,9 @@ def interventions(
 def single_point_of_failure_findings(run: Interventions) -> list[Finding]:
     """Turn the interventions into single-point-of-failure findings.
 
+    Internal to the diagnostics package, for ``diagnose`` and ``diagnose_many``; not exported by
+    ``credencegraph.diagnostics`` and not part of its public API.
+
     Args:
         run: The interventions, from ``interventions``.
 
@@ -628,6 +643,9 @@ def single_point_of_failure_findings(run: Interventions) -> list[Finding]:
 
 def failure_impact_findings(run: Interventions) -> list[Finding]:
     """Turn the interventions into the failure-impact ranking.
+
+    Internal to the diagnostics package, for ``diagnose`` and ``diagnose_many``; not exported by
+    ``credencegraph.diagnostics`` and not part of its public API.
 
     Args:
         run: The interventions, from ``interventions``.
