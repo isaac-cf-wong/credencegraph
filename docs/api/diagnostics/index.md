@@ -181,11 +181,14 @@ nonzero strength, with the id `correlated-support:<node>:variable:<variable>`,
 whatever the variable's parents: they already share their only input, so no
 common parent can correlate them. The fix is one relation in their place.
 
-The reference below documents the functions and classes that
+The reference below has an entry for each function and class that
 `credencegraph.diagnostics` exports. `claims` is listed under its own module,
 `credencegraph.diagnostics.claims`, whose name it shares. The constants it
-exports, the defaults such as `DEFAULT_CLAIM_THRESHOLD` and the finding kinds
-such as `OVERCLAIM`, are not listed. The module
+exports have no entries of their own. The defaults `DEFAULT_CLAIM_THRESHOLD`,
+`DEFAULT_FAILURE_THRESHOLD` and `DEFAULT_MIN_SUPPORTS` appear by name in the
+signatures and parameter tables of the functions that take them; the finding
+kinds, such as `OVERCLAIM`, and `PROVENANCE_TYPES` appear in no signature or
+parameter table. The module
 `credencegraph.diagnostics.weak_points` also defines `Interventions`,
 `interventions`, `sensitivity_findings`, `crux_findings`,
 `single_point_of_failure_findings` and `failure_impact_findings`, which
