@@ -195,8 +195,10 @@ string, must be found in it:
   exactly; inside LaTeX, the argument of `\mathrm{…}`, `\text{…}` and `\si{…}`
   counts as a token. A unit needs a delimiter only on a side where it starts or
   ends with a letter or digit, so the `%` of `1.1%` is a token. The operators
-  `/`, `^`, `·` and `⋅` join symbols into one compound unit rather than delimit
-  them, so a unit `m` is not found in `3 m/s` or `3 m^2`: write the compound.
+  `/`, `^`, `·`, `⋅`, `×` and `*` join symbols into one compound unit, and the
+  LaTeX subscript operator `_` joins a symbol to its subscript, so none of them
+  delimits a token: a unit `m` is not found in `3 m/s`, `3 m^2`, `3 N×m`,
+  `3 N*m` or `3 m_e`. Write the compound.
 - **Equation references** match `\ref{v}`, `\eqref{v}`, `\cref{v}` or `\Cref{v}`
   for a label `v`, or `(v)` for a printed number `v`.
 
