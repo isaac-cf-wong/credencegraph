@@ -18,8 +18,9 @@ _SIGNS = "+-" + _MINUS
 _GROUP = "(?:,|\N{THIN SPACE}|\N{NARROW NO-BREAK SPACE}|\\\\,)"
 _TIMES = "\N{MULTIPLICATION SIGN}"
 _ALPHANUMERIC = re.compile(r"[^\W_]")
-# The operators that join unit symbols into one compound unit, as in m/s, m^2 and N·m.
-_JOINERS = "[/^\N{MIDDLE DOT}\N{DOT OPERATOR}]"
+# The operators that join unit symbols into one compound unit, as in m/s, m^2, N·m and N*m, plus the
+# multiplication sign and the subscript operator of m_e.
+_JOINERS = f"[/^*_\N{MIDDLE DOT}\N{DOT OPERATOR}{_TIMES}]"
 
 # A numeral: an optional sign that does not follow a word character or a dot, digits in groups of
 # three or plain, an optional fraction, an optional exponent (1.2e-3, 1.2 x 10^-3 written with a
@@ -86,8 +87,9 @@ def has_unit(text: str, unit: str) -> bool:
     counts as a token too. A boundary is required only where the unit begins or ends with a letter
     or digit: it keeps ``Hz`` from matching inside ``kHz`` or ``100Hz``, while a unit that starts
     with punctuation, such as the ``%`` of ``1.1%``, is itself delimited from the numeral before it.
-    The operators ``/``, ``^``, ``·`` and ``⋅`` join symbols into one compound unit rather than
-    delimit them, so ``m`` is not a token of ``m/s`` or ``m^2``; the compound itself is.
+    The operators ``/``, ``^``, ``·``, ``⋅``, ``*`` and the multiplication sign join symbols into one
+    compound unit, and the subscript operator ``_`` joins a symbol to its subscript, rather than
+    delimit them, so ``m`` is not a token of ``m/s``, ``m^2`` or ``m_e``; the compound itself is.
 
     Args:
         text: The text.
