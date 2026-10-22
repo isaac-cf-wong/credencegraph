@@ -25,7 +25,7 @@ _ANCHOR_FIELDS = {"document", "locator", "quote", "digest"}
 _NODE_FIELDS = {"id", "kind", "statement", "sources", "base", "stated", "attributes"}
 _RELATION_FIELDS = {"id", "type", "source", "target", "strength", "attributes", "obligation"}
 _OBLIGATION_FIELDS = {"statement", "discharge"}
-_DISCHARGE_FIELDS = {"kind", "theorem", "script", "digest", "status", "tolerance", "anchor"}
+_DISCHARGE_FIELDS = {"kind", "theorem", "script", "digest", "status", "value", "tolerance", "anchor"}
 _GRAPH_FIELDS = {"format", "version", "nodes", "relations"}
 
 
@@ -100,7 +100,7 @@ def _obligation_to_dict(obligation: Obligation) -> dict[str, Any]:
     if discharge is None:
         return {"statement": obligation.statement, "discharge": None}
     encoded: dict[str, Any] = {"kind": discharge.kind}
-    for name in ("theorem", "script", "digest", "status", "tolerance"):
+    for name in ("theorem", "script", "digest", "status", "value", "tolerance"):
         value = getattr(discharge, name)
         if value is not None:
             encoded[name] = value

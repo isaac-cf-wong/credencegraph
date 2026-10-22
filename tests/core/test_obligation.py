@@ -29,7 +29,7 @@ DIGEST = file_digest(b"assert True\n")
 DISCHARGES = {
     "formal": Discharge("formal", theorem="Paper.eq3_of_eq2"),
     "symbolic": Discharge("symbolic", script="eq3.py", digest=DIGEST, status=0),
-    "numerical": Discharge("numerical", script="bias.py", digest=DIGEST, status=1, tolerance=0.01),
+    "numerical": Discharge("numerical", script="bias.py", digest=DIGEST, status=1, value=0.0, tolerance=0.01),
     "citation": Discharge("citation", anchor=SourceAnchor("paper.tex", "sec2", "the noise is Gaussian", None)),
     "judgement": Discharge("judgement"),
 }
@@ -69,8 +69,9 @@ class TestDischarge:
         [
             ("formal", {}, "theorem"),
             ("symbolic", {}, "script"),
-            ("numerical", {"script": "x.py"}, "tolerance"),
-            ("numerical", {"tolerance": 0.1}, "script"),
+            ("numerical", {"script": "x.py", "value": 0.0}, "tolerance"),
+            ("numerical", {"script": "x.py", "tolerance": 0.1}, "value"),
+            ("numerical", {"value": 0.0, "tolerance": 0.1}, "script"),
             ("citation", {}, "anchor"),
         ],
     )
@@ -120,7 +121,18 @@ class TestDischarge:
     def test_tolerance_is_positive_and_finite(self, tolerance):
         """Test that a tolerance is a finite number above zero."""
         with pytest.raises(ValidationError, match=r"Discharge\.tolerance"):
-            Discharge("numerical", script="x.py", tolerance=tolerance)
+            Discharge("numerical", script="x.py", value=0.0, tolerance=tolerance)
+
+    @pytest.mark.parametrize("value", [math.inf, -math.inf, math.nan, True, "0.1"])
+    def test_value_is_finite(self, value):
+        """Test that the expected value of a numerical check is a finite number."""
+        with pytest.raises(ValidationError, match=r"Discharge\.value must be a finite number"):
+            Discharge("numerical", script="x.py", value=value, tolerance=0.1)
+
+    def test_value_belongs_to_numerical_only(self):
+        """Test that a symbolic discharge, which prints no result, takes no value."""
+        with pytest.raises(ValidationError, match="a symbolic discharge takes no value"):
+            Discharge("symbolic", script="x.py", value=0.0)
 
     def test_citation_needs_a_quote(self):
         """Test that a citation anchors a quote, not only a document."""
@@ -182,10 +194,11 @@ class TestSerialization:
 
     def test_only_given_fields_are_written(self):
         """Test that a discharge is written with its kind and the fields it has, nothing else."""
-        data = graph_to_dict(graph_with(Discharge("numerical", script="bias.py", tolerance=0.01)))
+        data = graph_to_dict(graph_with(Discharge("numerical", script="bias.py", value=0, tolerance=0.01)))
         assert data["relations"][0]["obligation"]["discharge"] == {
             "kind": "numerical",
             "script": "bias.py",
+            "value": 0.0,
             "tolerance": 0.01,
         }
 
@@ -243,8 +256,9 @@ class TestSchema:
             {"kind": "symbolic", "script": "x.sh"},
             {"kind": "symbolic", "script": "x.py", "digest": DIGEST},
             {"kind": "symbolic", "script": "x.py", "digest": "sha256:0", "status": 0},
-            {"kind": "numerical", "script": "x.py"},
-            {"kind": "numerical", "script": "x.py", "tolerance": 0},
+            {"kind": "numerical", "script": "x.py", "value": 0},
+            {"kind": "numerical", "script": "x.py", "tolerance": 0.1},
+            {"kind": "numerical", "script": "x.py", "value": 0, "tolerance": 0},
             {"kind": "citation", "anchor": {"document": "d"}},
             {"kind": "judgement", "theorem": "t"},
             {"kind": "hunch"},

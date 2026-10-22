@@ -1,17 +1,19 @@
 """Re-checking the discharges of a graph's obligations, and the sorries a target still rests on.
 
-``verify`` re-runs every script discharge and re-reads every citation it can reach. It runs the
-scripts the graph names, as the current user, so run it only on graphs whose scripts you trust.
+``verify`` re-runs every script discharge, holds a numerical script's printed result to its
+recorded value and tolerance, and re-reads every citation it can reach. It runs the scripts the
+graph names, as the current user, so run it only on graphs whose scripts you trust.
 
 ``sorries`` reads the record alone, without running anything: a step the target depends on is
-proven when its obligation carries a discharge that could have failed and passed. Every other step
-is a *sorry*, resting on judgement only, and the report ranks the sorries by how far the target's
-probability moves with each one's strength.
+discharged by a ``formal`` or ``citation`` discharge, or by a script whose recorded run passed and
+which has a reachable way to fail. Every other step is a *sorry*, resting on judgement only, and the
+report ranks the sorries by how far the target's probability moves with each one's strength.
 """
 
 from __future__ import annotations
 
 import ast
+import math
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -23,6 +25,7 @@ from credencegraph.core.obligation import (
     CITATION,
     FORMAL,
     JUDGEMENT,
+    NUMERICAL,
     SCRIPT_KINDS,
     Discharge,
     file_digest,
@@ -42,6 +45,8 @@ SCRIPT_CHANGED = "script-changed"
 CANNOT_FAIL = "cannot-fail"
 CONTRADICTED = "contradicted"
 CHECK_FAILED = "check-failed"
+RESULT_MISSING = "result-missing"
+OUT_OF_TOLERANCE = "out-of-tolerance"
 QUOTE_NOT_FOUND = "quote-not-found"
 QUOTE_DIGEST_MISMATCH = "quote-digest-mismatch"
 
@@ -84,20 +89,69 @@ def _exits_nonzero(call: ast.Call) -> bool:
     return not (isinstance(argument, ast.Constant) and argument.value in {0, None})
 
 
-def can_fail(source: str) -> bool:
-    """Tell whether a Python script has a way to fail: an ``assert``, a ``raise``, or a non-zero exit.
+def _constant(test: ast.expr) -> bool | None:
+    """Return the truth of a condition fixed in the source, such as ``False``, ``0`` or ``not True``.
 
-    A script that does not parse has no checked failure path, only a crash, and counts as unable to fail.
+    Returns:
+        ``True`` or ``False`` for a constant condition, ``None`` for one only a run can decide.
+    """
+    if isinstance(test, ast.Constant):
+        return bool(test.value)
+    if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
+        inner = _constant(test.operand)
+        return None if inner is None else not inner
+    return None
+
+
+class _DeadCode(ast.NodeTransformer):
+    """Drop the code a constant condition makes unreachable, and the asserts that cannot fail."""
+
+    def visit_If(self, node: ast.If) -> ast.AST | list[ast.stmt]:
+        """Keep only the branch a constant condition takes."""
+        taken = _constant(node.test)
+        if taken is None:
+            return self.generic_visit(node)
+        return [self.visit(stmt) for stmt in (node.body if taken else node.orelse)]
+
+    def visit_While(self, node: ast.While) -> ast.AST | list[ast.stmt]:
+        """Drop the body of a loop whose condition is constantly false."""
+        if _constant(node.test) is False:
+            return [self.visit(stmt) for stmt in node.orelse]
+        return self.generic_visit(node)
+
+    def visit_IfExp(self, node: ast.IfExp) -> ast.AST:
+        """Keep only the branch of a conditional expression that a constant condition takes."""
+        taken = _constant(node.test)
+        if taken is None:
+            return self.generic_visit(node)
+        return self.visit(node.body if taken else node.orelse)
+
+    def visit_Assert(self, node: ast.Assert) -> ast.AST | None:
+        """Drop an assert of a condition that is constantly true."""
+        if _constant(node.test) is True:
+            return None
+        return self.generic_visit(node)
+
+
+def can_fail(source: str) -> bool:
+    """Tell whether a Python script has a reachable way to fail: an ``assert``, a ``raise``, or a non-zero exit.
+
+    Code that a constant condition makes unreachable is ignored first: the body of ``if False:``,
+    ``if 0:`` or ``while False:``, the ``else`` of ``if True:``, the dead branch of a conditional
+    expression, and an ``assert`` of a constantly true condition such as ``assert True``. A condition
+    counts as constant only when it is a literal or the ``not`` of one; a check behind any other
+    condition is taken to be reachable. A script that does not parse has no checked failure path,
+    only a crash, and counts as unable to fail.
 
     Args:
         source: The script's text.
 
     Returns:
-        ``True`` when the script contains an ``assert`` or ``raise`` statement, or an exit call
+        ``True`` when the reachable code holds an ``assert`` or ``raise`` statement, or an exit call
         (``sys.exit``, ``os._exit``, ``exit`` or ``quit``) whose argument is not ``0`` or ``None``.
     """
     try:
-        tree = ast.parse(source)
+        tree = _DeadCode().visit(ast.parse(source))
     except (SyntaxError, ValueError):
         return False
     return any(
@@ -156,8 +210,12 @@ def _finding(diagnostic: str, relation: Relation, message: str, **details: float
     )
 
 
-def _run(script: Path, timeout: float) -> int:
-    """Run a Python script from its own directory and return its exit status, ``TIMED_OUT`` on timeout."""
+def _run(script: Path, timeout: float) -> tuple[int, str]:
+    """Run a Python script from its own directory.
+
+    Returns:
+        Its exit status, ``TIMED_OUT`` on timeout, and its standard output.
+    """
     try:
         completed = subprocess.run(  # noqa: S603 - the interpreter and a recorded script, no shell
             [sys.executable, str(script)],
@@ -167,8 +225,35 @@ def _run(script: Path, timeout: float) -> int:
             check=False,
         )
     except subprocess.TimeoutExpired:
-        return TIMED_OUT
-    return completed.returncode
+        return TIMED_OUT, ""
+    return completed.returncode, completed.stdout.decode("utf-8", errors="replace")
+
+
+def _check_result(relation: Relation, discharge: Discharge, output: str) -> Finding | None:
+    """Check the result a numerical script printed, its last non-blank line, against value and tolerance."""
+    assert discharge.value is not None  # noqa: S101 - Discharge guarantees both for a numerical discharge
+    assert discharge.tolerance is not None  # noqa: S101
+    lines = [line.strip() for line in output.splitlines() if line.strip()]
+    try:
+        result = float(lines[-1])
+    except (IndexError, ValueError):
+        printed = repr(lines[-1]) if lines else "nothing"
+        return _finding(
+            RESULT_MISSING,
+            relation,
+            f"the script {discharge.script!r} printed {printed} as its last line, not a number to hold to "
+            f"{discharge.value:g} ± {discharge.tolerance:g}",
+        )
+    if math.isfinite(result) and abs(result - discharge.value) <= discharge.tolerance:
+        return None
+    return _finding(
+        OUT_OF_TOLERANCE,
+        relation,
+        f"the script {discharge.script!r} computed {result:g}, outside {discharge.value:g} ± {discharge.tolerance:g}",
+        **({"result": result} if math.isfinite(result) else {}),
+        value=discharge.value,
+        tolerance=discharge.tolerance,
+    )
 
 
 def _check_script(relation: Relation, discharge: Discharge, directory: Path, timeout: float) -> Check:
@@ -190,10 +275,10 @@ def _check_script(relation: Relation, discharge: Discharge, directory: Path, tim
             _finding(
                 CANNOT_FAIL,
                 relation,
-                f"the script {discharge.script!r} has no assert, raise or non-zero exit, so it cannot fail",
+                f"the script {discharge.script!r} has no reachable assert, raise or non-zero exit, so it cannot fail",
             )
         )
-    status = _run(path, timeout)
+    status, output = _run(path, timeout)
     ran = "timed out" if status == TIMED_OUT else f"exited with {status}"
     if discharge.status is not None and (status == 0) != (discharge.status == 0):
         findings.append(
@@ -207,6 +292,10 @@ def _check_script(relation: Relation, discharge: Discharge, directory: Path, tim
         )
     elif status != 0:
         findings.append(_finding(CHECK_FAILED, relation, f"the script {discharge.script!r} {ran}", status=status))
+    if status == 0 and discharge.kind == NUMERICAL:
+        result = _check_result(relation, discharge, output)
+        if result is not None:
+            findings.append(result)
     return Check(relation.id, discharge.kind, FLAGGED if findings else PASSED, tuple(findings), status)
 
 
@@ -234,9 +323,12 @@ def verify(graph: Graph, directory: str | Path, *, timeout: float = DEFAULT_TIME
     """Re-check every discharge in a graph.
 
     A script discharge is run with the current interpreter, from the script's directory, and is
-    flagged when the script cannot be read, was never run, changed since its recorded run, has no way
-    to fail, or now fails: as ``contradicted`` when its recorded run passed, or when it now passes
-    though its recorded run failed, and as ``check-failed`` otherwise. A citation is flagged when its
+    flagged when the script cannot be read, was never run, changed since its recorded run, has no
+    reachable way to fail (see ``can_fail``), or now fails: as ``contradicted`` when its recorded run
+    passed, or when it now passes though its recorded run failed, and as ``check-failed`` otherwise.
+    When a numerical script exits 0, the last non-blank line it printed is its result, flagged as
+    ``result-missing`` when it is not a number and as ``out-of-tolerance`` when it lies further than
+    ``tolerance`` from ``value``. A citation is flagged when its
     quote is not in the cited document, read as a file relative to ``directory``, or its digest is
     not the quote's; a citation of anything else is unchecked. A ``formal`` discharge is unchecked,
     since no proof checker ships with this package.

@@ -34,7 +34,9 @@ def verify_command(
     Scripts and cited documents are found relative to the graph file's directory, and each script is
     run with the current Python from its own directory, so verify only graphs whose scripts you trust.
     A script is flagged when it cannot be read, was never run, changed since its recorded run, has no
-    assert, raise or non-zero exit, or now fails. A citation of a file is flagged when the quote is not
+    reachable assert, raise or non-zero exit, or now fails. A numerical script that exits 0 is also
+    flagged when the result it prints last lies outside its value plus or minus its tolerance, or is
+    not a number. A citation of a file is flagged when the quote is not
     in it. Formal discharges, and citations of anything but a file, are reported as unchecked.
     Any flagged discharge fails the command with a verification-failed error.
     """

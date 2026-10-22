@@ -17,10 +17,12 @@ from credencegraph.diagnostics.obligations import (
     NEVER_RUN,
     NO_OBLIGATION,
     NOT_CHECKABLE,
+    OUT_OF_TOLERANCE,
     PASSED,
     QUOTE_DIGEST_MISMATCH,
     QUOTE_NOT_FOUND,
     RECORDED_FAILURE,
+    RESULT_MISSING,
     SCRIPT_CHANGED,
     TIMED_OUT,
     UNCHECKED,
@@ -35,6 +37,10 @@ from credencegraph.rubric.text import text_digest
 PASSES = "assert 1 + 1 == 2\n"
 FAILS = "import sys\nsys.exit(1)\n"
 CANNOT = "print('ok')\n"
+# A bias check: it fails when the bias reaches 1%, and prints the bias for verify to hold to 0 ± 0.01.
+BIAS = "bias = {bias}\nassert abs(bias) < 0.01\nprint(bias)\n"
+# The same bias, printed by a script whose own assert cannot catch it.
+LAX = "bias = {bias}\nassert isinstance(bias, float)\nprint(bias)\n"
 
 
 def script(directory: Path, name: str, text: str) -> str:
@@ -44,9 +50,12 @@ def script(directory: Path, name: str, text: str) -> str:
 
 
 def recorded(directory: Path, name: str, text: str, status: int = 0, kind: str = "symbolic") -> Discharge:
-    """Write a script and return a discharge recording a run of exactly that text with ``status``."""
+    """Write a script and return a discharge recording a run of exactly that text with ``status``.
+
+    A numerical discharge holds the printed result to 0 ± 0.01.
+    """
     script(directory, name, text)
-    extra = {"tolerance": 0.01} if kind == "numerical" else {}
+    extra = {"value": 0.0, "tolerance": 0.01} if kind == "numerical" else {}
     return Discharge(kind, script=name, digest=file_digest(text.encode()), status=status, **extra)
 
 
@@ -89,6 +98,13 @@ class TestCanFail:
             "exit(3)",
             "quit(status)",
             "if bias >= 0.01:\n    raise SystemExit('bias')",
+            "x = 0.5\nassert x < 1",
+            "if True:\n    assert x",
+            "if False:\n    pass\nelse:\n    assert x",
+            "while True:\n    assert x",
+            "if x:\n    if False:\n        pass\n    raise ValueError",
+            "ok = check() if True else None\nassert ok",
+            "def main():\n    assert x\nmain()",
         ],
     )
     def test_failure_paths(self, source):
@@ -107,13 +123,25 @@ class TestCanFail:
             "def f(:\n    assert x",
             "x = 'assert raise sys.exit(1)'",
             "# assert x\n",
+            "if False: assert False",
+            "if False:\n    assert False",
+            "if 0:\n    raise ValueError",
+            "if None:\n    import sys\n    sys.exit(1)",
+            "if not True:\n    assert x",
+            "if True:\n    pass\nelse:\n    raise ValueError",
+            "while False:\n    assert x",
+            "x = exit(1) if False else 0",
+            "assert True",
+            "assert 1, 'never fails'",
+            "print('ok')\nif False:\n    if x:\n        raise ValueError",
         ],
     )
     def test_no_failure_path(self, source):
-        """Test that a script with no assert, raise or non-zero exit, or that does not parse, cannot fail.
+        """Test that a script whose only asserts, raises and non-zero exits are unreachable cannot fail.
 
-        The last two mention the keywords only in a string and a comment, which a text search would
-        mistake for a failure path.
+        A string and a comment that mention the keywords, which a text search would mistake for a
+        failure path, do not count either, nor does a check under a constant-false guard, the dead
+        branch of a constant condition, or an assert of a constantly true condition.
         """
         assert not can_fail(source)
 
@@ -121,10 +149,10 @@ class TestCanFail:
 class TestVerifyScripts:
     """Each kind of trouble with a script discharge is flagged, and a sound one passes."""
 
-    @pytest.mark.parametrize("kind", ["symbolic", "numerical"])
-    def test_sound_script_passes(self, tmp_path, kind):
+    @pytest.mark.parametrize(("kind", "text"), [("symbolic", PASSES), ("numerical", BIAS.format(bias=0.004))])
+    def test_sound_script_passes(self, tmp_path, kind, text):
         """Test that an unchanged script that can fail and still passes is verified."""
-        (check,) = verify(single(recorded(tmp_path, "ok.py", PASSES, kind=kind)), tmp_path)
+        (check,) = verify(single(recorded(tmp_path, "ok.py", text, kind=kind)), tmp_path)
         assert (check.relation, check.kind, check.outcome, check.status, check.findings) == ("r", kind, PASSED, 0, ())
 
     def test_runs_from_the_script_directory(self, tmp_path):
@@ -188,10 +216,61 @@ class TestVerifyScripts:
 
     def test_timeout(self, tmp_path):
         """Test that a script stopped at the timeout counts as a failed run."""
-        discharge = recorded(tmp_path, "slow.py", "import time\ntime.sleep(30)\nassert True\n")
+        discharge = recorded(tmp_path, "slow.py", "import time\ntime.sleep(30)\nassert time.time() > 0\n")
         (check,) = verify(single(discharge), tmp_path, timeout=0.5)
         assert (diagnostics(check), check.status) == ([CONTRADICTED], TIMED_OUT)
         assert "timed out" in check.findings[0].message
+
+    def test_unreachable_check_cannot_fail(self, tmp_path):
+        """Test that a script whose only assert sits under ``if False`` is flagged, and remains a sorry."""
+        discharge = recorded(tmp_path, "eq.py", "if False: assert False\n")
+        (check,) = verify(single(discharge), tmp_path)
+        assert (check.outcome, diagnostics(check), check.status) == (FLAGGED, [CANNOT_FAIL], 0)
+        (sorry,) = sorries(single(discharge), "claim", tmp_path).sorries
+        assert sorry.reason == CANNOT_FAIL
+
+    def test_result_outside_tolerance_fails_though_the_script_passes(self, tmp_path):
+        """Test that a numerical result outside value ± tolerance is flagged even when the script exits 0.
+
+        The script's own assert cannot catch the bias, so only the recorded tolerance can.
+        """
+        (check,) = verify(single(recorded(tmp_path, "bias.py", LAX.format(bias=0.05), kind="numerical")), tmp_path)
+        assert (check.outcome, check.status, diagnostics(check)) == (FLAGGED, 0, [OUT_OF_TOLERANCE])
+        assert check.findings[0].details == {"result": 0.05, "value": 0.0, "tolerance": 0.01}
+        assert "computed 0.05, outside 0 ± 0.01" in check.findings[0].message
+
+    @pytest.mark.parametrize(
+        ("bias", "outcome"),
+        [(0.01, PASSED), (-0.01, PASSED), (0.0100001, FLAGGED), (-0.0100001, FLAGGED), ("float('nan')", FLAGGED)],
+    )
+    def test_tolerance_is_inclusive(self, tmp_path, bias, outcome):
+        """Test the edge of the band: a result exactly at value ± tolerance passes, beyond it or NaN does not."""
+        (check,) = verify(single(recorded(tmp_path, "bias.py", LAX.format(bias=bias), kind="numerical")), tmp_path)
+        assert check.outcome == outcome
+        assert diagnostics(check) == ([] if outcome == PASSED else [OUT_OF_TOLERANCE])
+
+    def test_last_line_is_the_result(self, tmp_path):
+        """Test that the result is the last non-blank line, after any other output."""
+        text = "print('computing')\nbias = 0.5\nassert bias == bias\nprint(0.002)\nprint()\n"
+        (check,) = verify(single(recorded(tmp_path, "bias.py", text, kind="numerical")), tmp_path)
+        assert check.outcome == PASSED
+
+    @pytest.mark.parametrize(("text", "printed"), [(PASSES, "nothing"), (PASSES + "print('ok')\n", "'ok'")])
+    def test_result_missing(self, tmp_path, text, printed):
+        """Test that a numerical script that prints no number is flagged rather than passed."""
+        (check,) = verify(single(recorded(tmp_path, "bias.py", text, kind="numerical")), tmp_path)
+        assert (check.outcome, diagnostics(check)) == (FLAGGED, [RESULT_MISSING])
+        assert f"printed {printed} as its last line" in check.findings[0].message
+
+    def test_failed_run_is_not_held_to_the_tolerance(self, tmp_path):
+        """Test that a run that already failed is reported once, not again for its result."""
+        (check,) = verify(single(recorded(tmp_path, "bias.py", BIAS.format(bias=0.5), kind="numerical")), tmp_path)
+        assert (diagnostics(check), check.status) == ([CONTRADICTED], 1)
+
+    def test_symbolic_output_is_ignored(self, tmp_path):
+        """Test that a symbolic script, which records no value, is not held to what it prints."""
+        (check,) = verify(single(recorded(tmp_path, "eq.py", PASSES + "print(99)\n")), tmp_path)
+        assert check.outcome == PASSED
 
     def test_finding_names_the_relation(self, tmp_path):
         """Test that a finding names the relation and both of its nodes."""
@@ -273,7 +352,7 @@ def dummy(tmp_path: Path) -> Graph:
     eq = Obligation("Eq. (3) follows from Eq. (2) by setting x = 0", recorded(tmp_path, "eq3.py", PASSES))
     bias = Obligation(
         "the bias is below 1%",
-        recorded(tmp_path, "bias.py", "bias = 0.004\nif bias >= 0.01:\n    raise SystemExit(1)\n", kind="numerical"),
+        recorded(tmp_path, "bias.py", BIAS.format(bias=0.004), kind="numerical"),
     )
     noise = Obligation("the noise is stationary", Discharge("judgement"))
     g.add_relation(Relation("eq-step", "requires", "eq2", "eq3", strength=0.99, obligation=eq))

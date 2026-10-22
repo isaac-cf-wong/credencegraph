@@ -1,12 +1,10 @@
 """Diagnostics: structural checks, claim consistency, weak points, discharges and sorries.
 
 Structural checks, stated-versus-computed consistency and the weak points of a target each return
-a list of ``Finding`` records; ``verify`` re-checks the discharged obligations of a graph, and
-``sorries`` reports the steps a target depends on that rest on judgement only.
-
-Every diagnostic returns a list of ``Finding`` records, each with an id, the ids of the nodes and
-relations involved, a headline value and a one-line explanation; ``Finding.to_dict`` gives its JSON
-form.
+a list of ``Finding`` records, each with an id, the ids of the nodes and relations involved, a
+headline value and a one-line explanation; ``Finding.to_dict`` gives its JSON form. ``verify``
+instead returns one ``Check`` per discharge, holding the findings of its re-check, and ``sorries``
+returns a ``SorryReport`` of the steps a target depends on that rest on judgement only.
 """
 
 from __future__ import annotations

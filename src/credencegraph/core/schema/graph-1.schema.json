@@ -87,7 +87,7 @@
                 {
                     "type": "object",
                     "additionalProperties": false,
-                    "required": ["kind", "script", "tolerance"],
+                    "required": ["kind", "script", "value", "tolerance"],
                     "dependentRequired": {
                         "digest": ["status"],
                         "status": ["digest"]
@@ -97,6 +97,7 @@
                         "script": { "$ref": "#/$defs/script" },
                         "digest": { "$ref": "#/$defs/digest" },
                         "status": { "type": "integer" },
+                        "value": { "type": "number" },
                         "tolerance": { "type": "number", "exclusiveMinimum": 0 }
                     }
                 },

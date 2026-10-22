@@ -133,3 +133,18 @@ class TestSorries:
         dump(graph, path)
         error = cli.error("sorries", path, "--target", "claim")
         assert error["code"] == "compile-error"
+
+
+def test_verify_holds_a_numerical_result_to_its_tolerance(cli, tmp_path):
+    """Test that a numerical script that exits 0 but prints a result outside its band fails verify."""
+    text = "bias = 0.05\nassert isinstance(bias, float)\nprint(bias)\n"
+    (tmp_path / "bias.py").write_text(text, encoding="utf-8")
+    discharge = Discharge(
+        "numerical", script="bias.py", digest=file_digest(text.encode()), status=0, value=0.0, tolerance=0.01
+    )
+    obligation = Obligation("the bias is below 1%", discharge)
+    path = write(tmp_path, Relation("r", "supports", "premise", "claim", strength=0.8, obligation=obligation))
+    error = cli.error("verify", path)
+    assert error["code"] == "verification-failed"
+    (check,) = error["details"]["checks"]
+    assert (check["status"], [f["diagnostic"] for f in check["findings"]]) == (0, ["out-of-tolerance"])

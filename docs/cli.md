@@ -241,7 +241,7 @@ one of five kinds:
 | ----------- | ------------------------------------------- | ------------------------- |
 | `formal`    | `theorem`, the proving theorem's name       | nothing: no checker ships |
 | `symbolic`  | `script`, its run's `digest` and `status`   | by running the script     |
-| `numerical` | as `symbolic`, and a `tolerance`            | by running the script     |
+| `numerical` | as `symbolic`, a `value` and a `tolerance`  | the run and its result    |
 | `citation`  | `anchor`, with a `quote`                    | the quote is in the file  |
 | `judgement` | none: the strength is the elicited credence | nothing                   |
 
@@ -258,6 +258,7 @@ one of five kinds:
         "discharge": {
             "kind": "numerical",
             "script": "bias.py",
+            "value": 0,
             "tolerance": 0.01,
             "digest": "sha256:…",
             "status": 0
@@ -269,18 +270,28 @@ one of five kinds:
 A script is a Python file, named relative to the graph file's directory. Its
 `digest` is `sha256:` and the hex SHA-256 of its bytes, as `sha256sum` prints
 it, and `status` the exit status of the run that discharged the step; record
-both or neither. A relation without an obligation is written exactly as before.
+both or neither. A numerical script prints the quantity it computes as the last
+non-blank line of its output, and the step holds when that number lies within
+`tolerance` of `value`, inclusive: the bias check above prints the bias and
+holds it to 0 ± 0.01. A relation without an obligation is written exactly as
+before.
 
 `credencegraph verify g.json` runs every script with the current Python, from
 the script's own directory, so **verify only graphs whose scripts you trust**.
 It flags a script that cannot be read (`missing-script`), has no recorded run
-(`never-run`), changed since that run (`script-changed`), has no `assert`,
-`raise` or non-zero exit and so cannot fail (`cannot-fail`), or now passes or
-fails against its record (`contradicted`), or fails without a passing record to
-contradict (`check-failed`). A run longer than `--timeout` seconds, 300 by
-default, is stopped and counts as failed. A citation of a file beside the graph
-is flagged when its quote, compared after whitespace is collapsed, is not in the
-file (`quote-not-found`) or its digest is not the quote's
+(`never-run`), changed since that run (`script-changed`), has no reachable
+`assert`, `raise` or non-zero exit and so cannot fail (`cannot-fail`), or now
+passes or fails against its record (`contradicted`), or fails without a passing
+record to contradict (`check-failed`). A check under a constant condition that
+never holds, such as `if False:`, or an assert of a constant that always holds,
+such as `assert True`, is not reachable; a check behind any other condition is
+taken to be. When a numerical script exits 0, its printed result is held to
+`value` ± `tolerance` as well, and is flagged when it lies outside
+(`out-of-tolerance`), or when the last line is not a number (`result-missing`),
+whatever the script's own asserts said. A run longer than `--timeout` seconds,
+300 by default, is stopped and counts as failed. A citation of a file beside the
+graph is flagged when its quote, compared after whitespace is collapsed, is not
+in the file (`quote-not-found`) or its digest is not the quote's
 (`quote-digest-mismatch`); a citation of anything else, such as a DOI, is
 `unchecked`. Each discharge gets a check with its `relation`, `kind`, `outcome`
 (`passed`, `flagged`, `unchecked` or `judgement`), the script's exit `status`

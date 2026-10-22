@@ -6,7 +6,8 @@ it was met, in one of five kinds:
 - ``formal``: a named theorem of a proof assistant. No checker ships with this package, so it is
   recorded but not re-checked.
 - ``symbolic``: a Python script asserting an identity, such as one checked with sympy.
-- ``numerical``: a Python script that fails when a computed quantity misses its tolerance.
+- ``numerical``: a Python script that computes a quantity and prints it as the last line of its
+  output; the quantity must lie within ``tolerance`` of the recorded ``value``.
 - ``citation``: a quote anchored to the cited source.
 - ``judgement``: an elicited credence, the relation's strength, and nothing more. A step discharged
   by judgement, or not discharged at all, remains a *sorry*.
@@ -42,12 +43,12 @@ _FILE_DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 _REQUIRED = {
     FORMAL: {"theorem"},
     SYMBOLIC: {"script"},
-    NUMERICAL: {"script", "tolerance"},
+    NUMERICAL: {"script", "value", "tolerance"},
     CITATION: {"anchor"},
     JUDGEMENT: set(),
 }
 _OPTIONAL = {SYMBOLIC: {"digest", "status"}, NUMERICAL: {"digest", "status"}}
-_FIELDS = ("theorem", "script", "digest", "status", "tolerance", "anchor")
+_FIELDS = ("theorem", "script", "digest", "status", "value", "tolerance", "anchor")
 
 
 def file_digest(data: bytes) -> str:
@@ -68,7 +69,8 @@ class Discharge:
 
     Each kind takes only its own fields: ``theorem`` for ``formal``; ``script``, and the optional
     ``digest`` and ``status`` of its recorded run, for ``symbolic`` and ``numerical``, which also
-    needs a ``tolerance``; ``anchor``, with a quote, for ``citation``; nothing for ``judgement``.
+    needs the expected ``value`` and the ``tolerance`` around it; ``anchor``, with a quote, for
+    ``citation``; nothing for ``judgement``.
 
     Attributes:
         kind: One of ``formal``, ``symbolic``, ``numerical``, ``citation`` and ``judgement``.
@@ -76,7 +78,8 @@ class Discharge:
         script: Path of the Python script, relative to the graph file's directory.
         digest: ``sha256:`` and the hex SHA-256 of the script's bytes when it was run.
         status: The exit status of that run; 0 means the check passed.
-        tolerance: The tolerance the numerical check holds the computed quantity to.
+        value: The value the numerical script's printed result must lie near.
+        tolerance: How far from ``value`` the printed result may lie, inclusive.
         anchor: The cited source and the quote from it.
     """
 
@@ -85,23 +88,13 @@ class Discharge:
     script: str | None = None
     digest: str | None = None
     status: int | None = None
+    value: float | None = None
     tolerance: float | None = None
     anchor: SourceAnchor | None = None
 
     def __post_init__(self) -> None:
         """Validate the fields against the kind."""
-        if self.kind not in DISCHARGE_KINDS:
-            msg = f"Discharge kind must be one of {', '.join(DISCHARGE_KINDS)}, got {self.kind!r}"
-            raise ValidationError(msg)
-        given = {name for name in _FIELDS if getattr(self, name) is not None}
-        missing = sorted(_REQUIRED[self.kind] - given)
-        if missing:
-            msg = f"a {self.kind} discharge needs {', '.join(missing)}"
-            raise ValidationError(msg)
-        extra = sorted(given - _REQUIRED[self.kind] - _OPTIONAL.get(self.kind, set()))
-        if extra:
-            msg = f"a {self.kind} discharge takes no {', '.join(extra)}"
-            raise ValidationError(msg)
+        self._check_fields()
         require_text(self.theorem, "Discharge.theorem", optional=True)
         require_text(self.script, "Discharge.script", optional=True)
         if self.script is not None and not self.script.endswith(".py"):
@@ -116,12 +109,15 @@ class Discharge:
         if self.status is not None and (isinstance(self.status, bool) or not isinstance(self.status, int)):
             msg = f"Discharge.status must be an integer exit status, got {self.status!r}"
             raise ValidationError(msg)
-        if self.tolerance is not None:
-            tolerance = self.tolerance
-            if isinstance(tolerance, bool) or not isinstance(tolerance, int | float) or not 0 < tolerance < math.inf:
-                msg = f"Discharge.tolerance must be a finite number above 0, got {tolerance!r}"
+        for name, low in (("value", -math.inf), ("tolerance", 0.0)):
+            number = getattr(self, name)
+            if number is None:
+                continue
+            if isinstance(number, bool) or not isinstance(number, int | float) or not low < number < math.inf:
+                bound = "a finite number" if low == -math.inf else "a finite number above 0"
+                msg = f"Discharge.{name} must be {bound}, got {number!r}"
                 raise ValidationError(msg)
-            object.__setattr__(self, "tolerance", float(tolerance))
+            object.__setattr__(self, name, float(number))
         if self.anchor is not None:
             if not isinstance(self.anchor, SourceAnchor):
                 msg = f"Discharge.anchor must be a SourceAnchor, got {self.anchor!r}"
@@ -129,6 +125,21 @@ class Discharge:
             if self.anchor.quote is None:
                 msg = "a citation discharge needs an anchor with a quote"
                 raise ValidationError(msg)
+
+    def _check_fields(self) -> None:
+        """Check that the kind is known and that exactly its own fields are given."""
+        if self.kind not in DISCHARGE_KINDS:
+            msg = f"Discharge kind must be one of {', '.join(DISCHARGE_KINDS)}, got {self.kind!r}"
+            raise ValidationError(msg)
+        given = {name for name in _FIELDS if getattr(self, name) is not None}
+        missing = sorted(_REQUIRED[self.kind] - given)
+        if missing:
+            msg = f"a {self.kind} discharge needs {', '.join(missing)}"
+            raise ValidationError(msg)
+        extra = sorted(given - _REQUIRED[self.kind] - _OPTIONAL.get(self.kind, set()))
+        if extra:
+            msg = f"a {self.kind} discharge takes no {', '.join(extra)}"
+            raise ValidationError(msg)
 
 
 @dataclass(frozen=True, slots=True)
