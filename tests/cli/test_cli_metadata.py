@@ -7,8 +7,8 @@ import typer.main
 
 from credencegraph.cli.main import app
 from credencegraph.core.node import DEFAULT_KIND
-from credencegraph.diagnostics import DEFAULT_CLAIM_THRESHOLD, DEFAULT_FAILURE_THRESHOLD
-from credencegraph.inference import DEFAULT_DRAWS
+from credencegraph.diagnostics import DEFAULT_CLAIM_THRESHOLD, DEFAULT_FAILURE_THRESHOLD, DEFAULT_MIN_SUPPORTS
+from credencegraph.inference import DEFAULT_DRAWS, DEFAULT_MAX_FACTOR_SIZE
 
 COMMANDS = (
     "version",
@@ -112,10 +112,13 @@ def test_positional_arguments(group, name, arguments):
         ("query", "setting", ["--set"], (False, True)),
         ("query", "draws", ["--draws"], (False, False)),
         ("query", "seed", ["--seed"], (False, False)),
+        ("query", "max_factor_size", ["--max-factor-size"], (False, False)),
         ("diagnose", "target", ["--target"], (False, True)),
         ("diagnose", "targets", ["--targets"], (False, False)),
         ("diagnose", "claim_threshold", ["--claim-threshold"], (False, False)),
         ("diagnose", "failure_threshold", ["--failure-threshold"], (False, False)),
+        ("diagnose", "min_supports", ["--min-supports"], (False, False)),
+        ("diagnose", "max_factor_size", ["--max-factor-size"], (False, False)),
         ("check", "rubric", ["--rubric"], (False, False)),
         ("check", "level", ["--level"], (False, False)),
         ("coverage", "rubric", ["--rubric"], (True, False)),
@@ -148,5 +151,8 @@ def test_defaults_are_the_library_defaults(group):
     """Test that the defaults that change results are taken from the library, not restated."""
     assert params(group.commands["add-node"])["kind"].default == DEFAULT_KIND
     assert params(group.commands["query"])["draws"].default == DEFAULT_DRAWS
+    assert params(group.commands["query"])["max_factor_size"].default == DEFAULT_MAX_FACTOR_SIZE
     assert params(group.commands["diagnose"])["claim_threshold"].default == DEFAULT_CLAIM_THRESHOLD
     assert params(group.commands["diagnose"])["failure_threshold"].default == DEFAULT_FAILURE_THRESHOLD
+    assert params(group.commands["diagnose"])["min_supports"].default == DEFAULT_MIN_SUPPORTS
+    assert params(group.commands["diagnose"])["max_factor_size"].default == DEFAULT_MAX_FACTOR_SIZE
