@@ -14,6 +14,7 @@ from credencegraph.core.credence import Beta, Credence, Point
 from credencegraph.core.errors import CycleError, ValidationError
 from credencegraph.core.graph import Graph
 from credencegraph.core.node import DEFAULT_KIND, Node
+from credencegraph.core.obligation import Discharge, Obligation
 from credencegraph.core.relation import Relation
 
 FORMAT = "credencegraph"
@@ -22,7 +23,9 @@ SCHEMA_RESOURCE = "graph-1.schema.json"
 
 _ANCHOR_FIELDS = {"document", "locator", "quote", "digest"}
 _NODE_FIELDS = {"id", "kind", "statement", "sources", "base", "stated", "attributes"}
-_RELATION_FIELDS = {"id", "type", "source", "target", "strength", "attributes"}
+_RELATION_FIELDS = {"id", "type", "source", "target", "strength", "attributes", "obligation"}
+_OBLIGATION_FIELDS = {"statement", "discharge"}
+_DISCHARGE_FIELDS = {"kind", "theorem", "script", "digest", "status", "tolerance", "anchor"}
 _GRAPH_FIELDS = {"format", "version", "nodes", "relations"}
 
 
@@ -66,17 +69,20 @@ def _node_to_dict(node: Node) -> dict[str, Any]:
         "id": node.id,
         "kind": node.kind,
         "statement": node.statement,
-        "sources": [
-            {"document": a.document, "locator": a.locator, "quote": a.quote, "digest": a.digest} for a in node.sources
-        ],
+        "sources": [_anchor_to_dict(anchor) for anchor in node.sources],
         "base": _optional_credence(node.base),
         "stated": _optional_credence(node.stated),
         "attributes": copy_json(node.attributes, "attributes"),
     }
 
 
+def _anchor_to_dict(anchor: SourceAnchor) -> dict[str, Any]:
+    return {"document": anchor.document, "locator": anchor.locator, "quote": anchor.quote, "digest": anchor.digest}
+
+
 def _relation_to_dict(rel: Relation) -> dict[str, Any]:
-    return {
+    """Encode a relation; ``obligation`` is written only when the relation has one."""
+    out = {
         "id": rel.id,
         "type": rel.type,
         "source": rel.source,
@@ -84,6 +90,23 @@ def _relation_to_dict(rel: Relation) -> dict[str, Any]:
         "strength": _optional_credence(rel.strength),
         "attributes": copy_json(rel.attributes, "attributes"),
     }
+    if rel.obligation is not None:
+        out["obligation"] = _obligation_to_dict(rel.obligation)
+    return out
+
+
+def _obligation_to_dict(obligation: Obligation) -> dict[str, Any]:
+    discharge = obligation.discharge
+    if discharge is None:
+        return {"statement": obligation.statement, "discharge": None}
+    encoded: dict[str, Any] = {"kind": discharge.kind}
+    for name in ("theorem", "script", "digest", "status", "tolerance"):
+        value = getattr(discharge, name)
+        if value is not None:
+            encoded[name] = value
+    if discharge.anchor is not None:
+        encoded["anchor"] = _anchor_to_dict(discharge.anchor)
+    return {"statement": obligation.statement, "discharge": encoded}
 
 
 def _mapping(value: Any, path: str, allowed: set[str], required: set[str]) -> Mapping[str, Any]:
@@ -162,7 +185,23 @@ def _relation_from_dict(value: Any, path: str) -> Relation:
         target=fields["target"],
         strength=_credence_from_json(fields.get("strength"), f"{path}.strength"),
         attributes=fields.get("attributes", {}),
+        obligation=_obligation_from_dict(fields.get("obligation"), f"{path}.obligation"),
     )
+
+
+def _obligation_from_dict(value: Any, path: str) -> Obligation | None:
+    if value is None:
+        return None
+    fields = _mapping(value, path, _OBLIGATION_FIELDS, {"statement"})
+    discharge = fields.get("discharge")
+    if discharge is not None:
+        dpath = f"{path}.discharge"
+        found = _mapping(discharge, dpath, _DISCHARGE_FIELDS, {"kind"})
+        anchor = found.get("anchor")
+        discharge = Discharge(
+            **{**found, "anchor": None if anchor is None else _anchor_from_dict(anchor, f"{dpath}.anchor")}
+        )
+    return Obligation(fields["statement"], discharge)
 
 
 def graph_from_dict(data: Any) -> Graph:

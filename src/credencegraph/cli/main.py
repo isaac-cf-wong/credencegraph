@@ -87,6 +87,7 @@ def register_commands() -> None:
     from credencegraph.cli.diagnose import check_command, diagnose_command
     from credencegraph.cli.edit import add_node_command, init_command, relate_command
     from credencegraph.cli.ingest import ingest_command
+    from credencegraph.cli.obligations import sorries_command, verify_command
     from credencegraph.cli.query import query_command
     from credencegraph.cli.rubric import annotate_command, coverage_command, split_command
     from credencegraph.cli.version import version_command
@@ -102,6 +103,8 @@ def register_commands() -> None:
     app.command(name="coverage")(coverage_command)
     app.command(name="split")(split_command)
     app.command(name="annotate")(annotate_command)
+    app.command(name="verify")(verify_command)
+    app.command(name="sorries")(sorries_command)
 
 
 register_commands()

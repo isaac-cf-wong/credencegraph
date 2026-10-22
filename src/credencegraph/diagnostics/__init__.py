@@ -1,4 +1,8 @@
-"""Diagnostics: structural checks, stated-versus-computed consistency, and the weak points of a target.
+"""Diagnostics: structural checks, claim consistency, weak points, discharges and sorries.
+
+Structural checks, stated-versus-computed consistency and the weak points of a target each return
+a list of ``Finding`` records; ``verify`` re-checks the discharged obligations of a graph, and
+``sorries`` reports the steps a target depends on that rest on judgement only.
 
 Every diagnostic returns a list of ``Finding`` records, each with an id, the ids of the nodes and
 relations involved, a headline value and a one-line explanation; ``Finding.to_dict`` gives its JSON
@@ -8,6 +12,16 @@ form.
 from __future__ import annotations
 
 from credencegraph.diagnostics.claims import DEFAULT_CLAIM_THRESHOLD, claims
+from credencegraph.diagnostics.obligations import (
+    SORRY_REASONS,
+    Check,
+    Sorry,
+    SorryReport,
+    can_fail,
+    dependencies,
+    sorries,
+    verify,
+)
 from credencegraph.diagnostics.records import (
     CORRELATED_SUPPORT,
     CRUX,
@@ -51,14 +65,20 @@ __all__ = [
     "PROVENANCE_TYPES",
     "SENSITIVITY",
     "SINGLE_POINT_OF_FAILURE",
+    "SORRY_REASONS",
     "UNANCHORED",
     "UNDERCLAIM",
     "VALUE_OF_INFORMATION",
+    "Check",
     "Finding",
     "Report",
+    "Sorry",
+    "SorryReport",
+    "can_fail",
     "claims",
     "correlated_support",
     "crux",
+    "dependencies",
     "derivatives",
     "diagnose",
     "diagnose_many",
@@ -66,6 +86,8 @@ __all__ = [
     "missing_parameters",
     "sensitivity",
     "single_points_of_failure",
+    "sorries",
     "unanchored",
     "value_of_information",
+    "verify",
 ]

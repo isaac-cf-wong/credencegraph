@@ -40,6 +40,8 @@ credencegraph diagnose g.json --target signal --targets stated
 | `coverage` | How far classification against a `--rubric` has got: counts by origin and type, what is left.       |
 | `split`    | Make a document chunk `NODE` a compound, with a span child per `--at` clause or a field child.      |
 | `annotate` | Type (`--type`), fill in (`--set`), link (`--rests-on`) and assess (`--verdict`) a node.            |
+| `verify`   | Re-check every discharged obligation, running its script; see below.                                |
+| `sorries`  | The steps `--target` depends on that rest on judgement only, ranked by sensitivity.                 |
 | `version`  | The installed version.                                                                              |
 
 **Credences** are written as a bare probability, `0.3`, or as a Beta
@@ -229,6 +231,78 @@ The Python form is `diagnose_many(graph, targets)`, whose `Report` holds the
 graph-wide `findings` and the `weak_points` of each target; `report.to_dicts()`
 is the `findings` list above.
 
+## Obligations and discharges
+
+An inferential relation may carry an `obligation`: what must be true for the
+step to hold, and, once it is met, a `discharge` recording how. A discharge has
+one of five kinds:
+
+| Kind        | Fields                                      | `verify` checks           |
+| ----------- | ------------------------------------------- | ------------------------- |
+| `formal`    | `theorem`, the proving theorem's name       | nothing: no checker ships |
+| `symbolic`  | `script`, its run's `digest` and `status`   | by running the script     |
+| `numerical` | as `symbolic`, and a `tolerance`            | by running the script     |
+| `citation`  | `anchor`, with a `quote`                    | the quote is in the file  |
+| `judgement` | none: the strength is the elicited credence | nothing                   |
+
+```json
+{
+    "id": "bias-step",
+    "type": "supports",
+    "source": "bias",
+    "target": "result",
+    "strength": 0.5,
+    "attributes": {},
+    "obligation": {
+        "statement": "the bias is below 1%",
+        "discharge": {
+            "kind": "numerical",
+            "script": "bias.py",
+            "tolerance": 0.01,
+            "digest": "sha256:…",
+            "status": 0
+        }
+    }
+}
+```
+
+A script is a Python file, named relative to the graph file's directory. Its
+`digest` is `sha256:` and the hex SHA-256 of its bytes, as `sha256sum` prints
+it, and `status` the exit status of the run that discharged the step; record
+both or neither. A relation without an obligation is written exactly as before.
+
+`credencegraph verify g.json` runs every script with the current Python, from
+the script's own directory, so **verify only graphs whose scripts you trust**.
+It flags a script that cannot be read (`missing-script`), has no recorded run
+(`never-run`), changed since that run (`script-changed`), has no `assert`,
+`raise` or non-zero exit and so cannot fail (`cannot-fail`), or now passes or
+fails against its record (`contradicted`), or fails without a passing record to
+contradict (`check-failed`). A run longer than `--timeout` seconds, 300 by
+default, is stopped and counts as failed. A citation of a file beside the graph
+is flagged when its quote, compared after whitespace is collapsed, is not in the
+file (`quote-not-found`) or its digest is not the quote's
+(`quote-digest-mismatch`); a citation of anything else, such as a DOI, is
+`unchecked`. Each discharge gets a check with its `relation`, `kind`, `outcome`
+(`passed`, `flagged`, `unchecked` or `judgement`), the script's exit `status`
+now, the `reason` it was unchecked, and its `findings`. Any flagged discharge
+fails the command with a `verification-failed` error, whose `details.checks`
+holds every check.
+
+`credencegraph sorries g.json --target result` lists the steps the target
+depends on: the `requires`, `supports` and `refutes` relations into it or into
+anything it depends on, and the `equivalent` and `exclusive` relations touching
+either. A step is discharged by a `formal` or `citation` discharge, or by a
+script whose recorded run exited 0 and which can fail. Every other step is a
+sorry, with its `reason`: `no-obligation`, `undischarged`, `judgement`,
+`never-run`, `recorded-failure`, `missing-script` or `cannot-fail`. The report
+reads the record and runs nothing, so run `verify` first. Credence applies only
+to the sorries, which are ranked by `sensitivity`, the exact derivative of
+P(target) by the step's strength, largest in size first; an `equivalent` or
+`exclusive` step has no strength and comes last. The JSON gives the `target`,
+the `steps`, the `discharged` relation ids and the `sorries`, each with its
+`relation`, `type`, `source`, `target`, `reason`, `obligation` statement and
+`sensitivity`.
+
 ## JSON output
 
 With `--json`, a command prints exactly one JSON object on stdout, on success
@@ -271,7 +345,7 @@ The `code` is stable and meant for programs; the `message` and `hint` are for
 people. The codes are `file-exists`, `file-not-found`, `io-error`,
 `invalid-graph`, `invalid-argument`, `duplicate-id`, `unknown-node`, `cycle`,
 `compile-error`, `zero-probability`, `problem-too-large`, `invalid-rubric`,
-`rubric-violation` and `missing-extra`.
+`rubric-violation`, `missing-extra` and `verification-failed`.
 
 A graph that cannot be compiled for inference is a `compile-error`, whichever
 command meets it: an inference variable without a base, equivalent nodes with
