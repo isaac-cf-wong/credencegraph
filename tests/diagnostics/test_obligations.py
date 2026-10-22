@@ -105,6 +105,10 @@ class TestCanFail:
             "if x:\n    if False:\n        pass\n    raise ValueError",
             "ok = check() if True else None\nassert ok",
             "def main():\n    assert x\nmain()",
+            "if True:\n    if True:\n        assert 0.5 < 1\n        print(0.0)",
+            "if True:\n    if False: assert False\n    else: assert x < 1",
+            "if not False:\n    if not False:\n        assert x < 1",
+            "if True:\n    while False:\n        pass\n    else:\n        raise ValueError",
         ],
     )
     def test_failure_paths(self, source):
@@ -134,6 +138,8 @@ class TestCanFail:
             "assert True",
             "assert 1, 'never fails'",
             "print('ok')\nif False:\n    if x:\n        raise ValueError",
+            "if True:\n    if False:\n        assert False",
+            "if True:\n    if True:\n        pass\n    else:\n        raise ValueError",
         ],
     )
     def test_no_failure_path(self, source):
@@ -220,6 +226,14 @@ class TestVerifyScripts:
         (check,) = verify(single(discharge), tmp_path, timeout=0.5)
         assert (diagnostics(check), check.status) == ([CONTRADICTED], TIMED_OUT)
         assert "timed out" in check.findings[0].message
+
+    def test_check_under_nested_constant_branches_can_fail(self, tmp_path):
+        """Test that an assert two constant branches deep still counts: it runs, so the script can fail."""
+        text = "if True:\n    if True:\n        assert 0.5 < 1\n        print(0.0)\n"
+        discharge = recorded(tmp_path, "bias.py", text, kind="numerical")
+        (check,) = verify(single(discharge), tmp_path)
+        assert (check.outcome, check.status, diagnostics(check)) == (PASSED, 0, [])
+        assert sorries(single(discharge), "claim", tmp_path).discharged == ("r",)
 
     def test_unreachable_check_cannot_fail(self, tmp_path):
         """Test that a script whose only assert sits under ``if False`` is flagged, and remains a sorry."""

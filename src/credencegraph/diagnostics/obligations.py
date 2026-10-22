@@ -106,17 +106,32 @@ def _constant(test: ast.expr) -> bool | None:
 class _DeadCode(ast.NodeTransformer):
     """Drop the code a constant condition makes unreachable, and the asserts that cannot fail."""
 
+    def _block(self, stmts: list[ast.stmt]) -> list[ast.stmt]:
+        """Visit a block of statements and return them as one flat list, as ``generic_visit`` does.
+
+        A statement may come back as a list, from a constant ``if`` or ``while`` nested in the block,
+        or as ``None``, from a dropped assert; the list is spliced in and the ``None`` left out, so no
+        statement a nested fold keeps is lost from the tree.
+        """
+        out: list[ast.stmt] = []
+        for stmt in stmts:
+            visited = self.visit(stmt)
+            if visited is None:
+                continue
+            out.extend(visited if isinstance(visited, list) else [visited])
+        return out
+
     def visit_If(self, node: ast.If) -> ast.AST | list[ast.stmt]:
         """Keep only the branch a constant condition takes."""
         taken = _constant(node.test)
         if taken is None:
             return self.generic_visit(node)
-        return [self.visit(stmt) for stmt in (node.body if taken else node.orelse)]
+        return self._block(node.body if taken else node.orelse)
 
     def visit_While(self, node: ast.While) -> ast.AST | list[ast.stmt]:
         """Drop the body of a loop whose condition is constantly false."""
         if _constant(node.test) is False:
-            return [self.visit(stmt) for stmt in node.orelse]
+            return self._block(node.orelse)
         return self.generic_visit(node)
 
     def visit_IfExp(self, node: ast.IfExp) -> ast.AST:
@@ -139,8 +154,10 @@ def can_fail(source: str) -> bool:
     Code that a constant condition makes unreachable is ignored first: the body of ``if False:``,
     ``if 0:`` or ``while False:``, the ``else`` of ``if True:``, the dead branch of a conditional
     expression, and an ``assert`` of a constantly true condition such as ``assert True``. A condition
-    counts as constant only when it is a literal or the ``not`` of one; a check behind any other
-    condition is taken to be reachable. A script that does not parse has no checked failure path,
+    counts as constant only when it is a literal or the ``not`` of one, at any depth of nesting; a
+    check behind any other condition is taken to be reachable, including one behind a conditional
+    expression that is itself constant, such as ``if (False if True else False):``, and an assert of
+    one, such as ``assert (True if True else False)``. A script that does not parse has no checked failure path,
     only a crash, and counts as unable to fail.
 
     Args:
