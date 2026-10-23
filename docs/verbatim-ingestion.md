@@ -215,8 +215,8 @@ of its scope: the node makes no claim about it, so it is not checked there and,
 as something another node rests on, restricts nothing there. A node with no
 `scope` field, which includes every analyst and evidence node, declares no
 scope. What a node rests on covers, on a parameter, the intersection of the
-scopes they declare there; when those scopes do not overlap, the intersection
-is empty and covers nothing.
+scopes they declare there; when those scopes do not overlap, the intersection is
+empty and covers nothing.
 
 **Units.** A `quantity` unit is read as SI symbols, each with an optional SI
 prefix and integer power, joined by `*`, `·`, `⋅`, `×` or a space, with `/`
@@ -451,17 +451,16 @@ This is what `ingest` must produce.
 - `out-of-domain`: A node's scope reaches outside a parameter's declared
   `domain`, such as a sample rate scoped at `[-3, -3]` against a domain of
   `[0, inf]`.
-- `scope-exceeds-support`: A node's scope on a parameter is not contained in
-  the intersection of the scopes of what it rests on there, such as a claim
-  scoped to sample rates `[1, 1000]` Hz resting on a result scoped to
-  `[10, 100]` Hz.
+- `scope-exceeds-support`: A node's scope on a parameter is not contained in the
+  intersection of the scopes of what it rests on there, such as a claim scoped
+  to sample rates `[1, 1000]` Hz resting on a result scoped to `[10, 100]` Hz.
 - `unit-mismatch`: A `quantity` field of a node and the field of the same name
-  on something it rests on have units of different dimensions, such as `Hz`
-  and `s`.
+  on something it rests on have units of different dimensions, such as `Hz` and
+  `s`.
 
-The last three read what a node **rests on**: every `requires` relation into
-it, and the relations its type's edge rule counts. The scope and unit checks
-use only form fields that have their field type; the others are already
+The last three read what a node **rests on**: every `requires` relation into it,
+and the relations its type's edge rule counts. The scope and unit checks use
+only form fields that have their field type; the others are already
 `form-invalid-field`.
 
 **`assessed`** — additionally, every node of a type with `assess = true` has a
