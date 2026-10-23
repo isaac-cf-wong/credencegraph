@@ -31,7 +31,7 @@ credencegraph diagnose g.json --target signal --targets stated
 | Command    | Does                                                                                                |
 | ---------- | --------------------------------------------------------------------------------------------------- |
 | `init`     | Create an empty graph file; `--force` replaces an existing one.                                     |
-| `ingest`   | Build a graph of document nodes from a LaTeX document `SOURCE GRAPH`; see below.                    |
+| `ingest`   | Build a graph of document nodes from a LaTeX or PDF document `SOURCE GRAPH`; see below.             |
 | `add-node` | Add a node: `--id`, and optionally `--statement`, `--kind`, `--base`, `--stated`, `--source`.       |
 | `relate`   | Add a relation `SOURCE TARGET --type TYPE`, with `--strength` where the type needs one.             |
 | `query`    | `marginal`, `joint`, `conditional` or `intervene`, with `--given`, `--set`, `--draws`, `--seed`.    |
@@ -109,18 +109,24 @@ credencegraph coverage paper.json --rubric methods.toml
 A rubric file that cannot be read is an `invalid-rubric` error, or
 `file-not-found` when it does not exist.
 
-## Ingesting a LaTeX document
+## Ingesting a document
 
 ```bash
 pip install 'credencegraph[ingest]'
 credencegraph ingest paper/main.tex paper.json --rubric methods.toml
+credencegraph ingest paper.pdf paper.json --rubric methods.toml
 ```
 
-`ingest SOURCE GRAPH [--rubric RUBRIC] [--document ID] [--force]` reads the main
-`.tex` file of a document and writes a graph with one document node per chunk: a
-sentence of running prose, a display equation, a caption, a footnote or a
-bibliography entry. The written graph passes `check --level anchored`; every
-node is `unassigned`, unless `--rubric` gives its unit an initial type.
+`ingest SOURCE GRAPH [--rubric RUBRIC] [--document ID] [--format latex|pdf] [--force]`
+reads a document and writes a graph with one document node per chunk: a sentence
+of running prose, a display equation, a caption, a footnote or a bibliography
+entry. The written graph passes `check --level anchored`; every node is
+`unassigned`, unless `--rubric` gives its unit an initial type. `--format` says
+how to read `SOURCE`; by default it follows the extension, `.tex` or `.pdf`, and
+a source with neither fails with `invalid-argument`. The JSON output names the
+`format` used.
+
+### LaTeX
 
 - `\input` and `\include` are followed, relative to the main file's directory.
   Macros defined with `\newcommand`, `\renewcommand`, `\providecommand` or
@@ -139,10 +145,49 @@ node is `unassigned`, unless `--rubric` gives its unit an initial type.
 - `--document` sets the anchors' document id, `SOURCE` as given by default.
 
 Sentences are split at `.`, `?` or `!` followed by a space and a word not in
-lower case, except after common abbreviations and initials, and at paragraph
-breaks, headings, list items and displays. A display inside a sentence ends it,
-so the text after the display starts a new node. Without the `ingest` extra the
-command fails with `missing-extra`.
+lower case, except after common abbreviations and initials (a single capital
+after "Table" or "Sec.", as in "Table I.", is a label and does end the
+sentence), and at paragraph breaks, headings, list items and displays. A display
+inside a sentence ends it, so the text after the display starts a new node.
+Without the `ingest` extra the command fails with `missing-extra`.
+
+### PDF
+
+The PDF reader is built on PDFium (through `pypdfium2`) and reads the text the
+PDF carries; it does not recover LaTeX from typeset mathematics.
+
+- Characters are read with their Unicode value, box, font and size, also inside
+  form XObjects, so a page that a submission system wraps whole is read like any
+  other. Ligatures are spelled out, an accent set as a glyph of its own is
+  combined with its letter, control characters are dropped, a glyph whose font
+  gives it no Unicode value reads as U+FFFD, and a word hyphenated at the end of
+  a line is joined when the next line starts in lower case.
+- Running text is the lines that start at the left edge of a text column and
+  share their baseline with nothing else in it. Text at an angle other than the
+  page's dominant one (such as a margin stamp) is not read into any node.
+- The title, the author and affiliation lines below it, and headings (short
+  lines in a bold font) are not nodes. Sentences are split as for LaTeX, and end
+  at headings and displays.
+- A display is the lines between two lines of running text. It is an equation
+  node if it holds an equation number, `(n)` or `(na)` set flush right in its
+  column, or mathematics; numbers are found by position, so a number that comes
+  out of order in the content stream is still found. The numbers are
+  `attributes.label`, a list when an `align` has several.
+- A display that holds a caption (`FIG. n`, `Figure n`, `TABLE n`, `Table n`) is
+  a float. Its caption is a caption node, without the label, and the float does
+  not end the sentence it interrupts: its nodes follow that sentence.
+- The bibliography starts at the last line beginning `[1]`; each `[n]` entry is
+  a reference node with key `n`. A citation `[n]`, `[n, m]` or `[n–m]` in
+  running text is a `cites` relation to each entry it names; a bracket naming a
+  number with no entry is not a citation.
+- Locators are `page=<n>;bbox=<x0>,<y0>,<x1>,<y1>`, in PDF points with the
+  origin at the bottom left, one pair per page the node spans.
+
+`credencegraph.ingest.pdf.analyse_pdf` returns the structure as well (title,
+headings, captions with the region they caption, equations with their regions,
+references with their arXiv identifiers and DOIs, citations with their boxes),
+and `render_region` renders a region to PNG, the anchor for mathematics the text
+cannot carry.
 
 ## Diagnosing under evidence
 

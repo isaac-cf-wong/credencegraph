@@ -1,0 +1,108 @@
+% An invented paper for testing the PDF reader. Its text, its authors and its references are made up;
+% the arXiv-style identifiers have an impossible month and the DOIs use Crossref's test prefix 10.5555,
+% so none of them resolves to anything. Rebuild dummy-paper.pdf with `make` in this directory.
+\pdftrailerid{}
+\pdfsuppressptexinfo=-1
+\documentclass[aps,prd,twocolumn,nofootinbib,superscriptaddress]{revtex4-2}
+\usepackage{amsmath}
+
+\begin{document}
+
+\title{A Toy Smoothing Filter for Invented Tide Records}
+
+\author{Odile Varenne}
+\affiliation{Department of Imaginary Measurements, Nowhere Institute, Elsewhere}
+
+\begin{abstract}
+We describe a toy smoothing filter for invented tide records. The filter suppresses short spikes
+while keeping slow trends, and its bias vanishes for long windows. We test it on synthetic data only.
+\end{abstract}
+
+\maketitle
+
+\section{Introduction}
+\label{sec:introduction}
+Smoothing a noisy record is a familiar task~\cite{quill2031}. Earlier filters treat every sample
+alike~\cite{quill2031,dupre2032,nabokova2033}, which blurs sharp but genuine features. In this paper
+we follow the efficient scheme of Hélène Dupré~\cite{dupre2032} and add one refinement.
+
+\section{The filter}
+\label{sec:filter}
+Let $x_k$ be the record at step $k$ and let $w > 0$ be the window length. The filter returns
+\begin{equation}
+  y_k = \frac{1}{w} \sum_{j=0}^{w-1} x_{k-j} .
+  \label{eq:mean}
+\end{equation}
+Its bias for a linear trend $x_k = a + b k$ is
+\begin{equation}
+  \beta = \frac{b (w - 1)}{2} ,
+  \label{eq:bias}
+\end{equation}
+so the relative bias $\beta / (b w)$ tends to $1/2$ and the absolute bias grows with $w$.
+
+\begin{figure}[t]
+  \centering
+  \setlength{\unitlength}{1mm}
+  \begin{picture}(60,30)
+    \put(0,0){\line(1,0){60}}
+    \put(0,0){\line(0,1){30}}
+    \put(0,5){\line(2,1){50}}
+  \end{picture}
+  \caption{The smoothed record against the step $k$ for a window $w = 8$.}
+  \label{fig:record}
+\end{figure}
+
+\begin{figure}[t]
+  \begin{equation}
+    \sigma_y^2 = \frac{\sigma^2}{w}
+    \label{eq:variance}
+  \end{equation}
+\end{figure}
+
+\subsection{Refinement}
+The refinement splits the window in two halves and weights them separately,
+\begin{subequations}
+  \label{eq:halves}
+  \begin{align}
+    y_k^{-} & = \frac{2}{w} \sum_{j=0}^{w/2-1} x_{k-j} , \label{eq:first-half}  \\
+    y_k^{+} & = \frac{2}{w} \sum_{j=w/2}^{w-1} x_{k-j} . \label{eq:second-half}
+  \end{align}
+\end{subequations}
+The two halves combine as
+\begin{equation}
+  z_k = \frac{y_k^{-} + y_k^{+}}{2} ,
+  \label{eq:combined}
+\end{equation}
+which equals Eq.~\eqref{eq:mean} for every even $w$. Its variance is still Eq.~\eqref{eq:variance}.
+
+\section{Tests}
+\label{sec:tests}
+We ran the filter on three synthetic records, listed in Table~\ref{tab:records}. The records are
+generated without any measurement, so the test says nothing about real tides~\cite{nabokova2033}.
+Figure~\ref{fig:record} shows one of them. Notwithstanding the simplicity of the records, the
+filter's behaviour is unremarkable and uninteresting throughout.
+
+\begin{table}[b]
+  \caption{The synthetic records and their window lengths.}
+  \label{tab:records}
+  \begin{ruledtabular}
+    \begin{tabular}{lcc}
+      Record & Samples & Window \\
+      \hline
+      A      & 100     & 4      \\
+      B      & 200     & 8      \\
+      C      & 400     & 16     \\
+    \end{tabular}
+  \end{ruledtabular}
+\end{table}
+
+\section*{Data availability}
+No data were measured for this study.
+
+\begin{thebibliography}{3}
+  \bibitem{quill2031} A. Quill, Smoothing invented records, arXiv:9913.00001.
+  \bibitem{dupre2032} H. Dupré and B. Ostrander, An efficient toy filter, Imaginary Journal of Filters \textbf{1}, 1 (2032), doi:10.5555/toy.2032.001.
+  \bibitem{nabokova2033} C. Nabokova, Synthetic tides, arXiv:9913.00002, doi:10.5555/toy.2033.002.
+\end{thebibliography}
+
+\end{document}

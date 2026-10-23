@@ -40,7 +40,7 @@ from pylatexenc.latexwalker import (
 )
 from pylatexenc.macrospec import MacroSpec
 
-from credencegraph.ingest.chunks import CAPTION, EQUATION, FOOTNOTE, REFERENCE, SENTENCE, Chunk
+from credencegraph.ingest.chunks import CAPTION, EQUATION, FOOTNOTE, REFERENCE, SENTENCE, Chunk, ends_sentence
 from credencegraph.rubric.text import normalise_text
 
 MAX_EXPANSION_DEPTH = 32
@@ -109,30 +109,6 @@ _SPECS = (
     MacroSpec("autocite", "*[[{"),
 )
 
-# A word after which a full stop does not end a sentence: a common abbreviation or an initial.
-_ABBREVIATIONS = frozenset(
-    {
-        "e.g",
-        "i.e",
-        "al",
-        "cf",
-        "vs",
-        "fig",
-        "figs",
-        "eq",
-        "eqs",
-        "ref",
-        "refs",
-        "sec",
-        "secs",
-        "dr",
-        "mr",
-        "mrs",
-        "ms",
-        "prof",
-    }
-)
-_INITIAL = re.compile(r"[A-Z]")
 _BOUNDARY = re.compile(r"(?P<par>\n[ \t]*\n\s*)|(?P<end>[.?!][\'\")\]]*)(?P<space>\s+|$)")
 _DEF = re.compile(r"\\def\s*\\([A-Za-z@]+)\s*((?:#\d\s*)*)\{")
 _PARAMETER = re.compile(r"#(\d)")
@@ -522,7 +498,7 @@ class _Reader:
                 self.end_sentence()
                 start = match.end()
                 continue
-            if not self.ends_sentence(text, match):
+            if not ends_sentence(text[: match.start()], text[match.end() :]):
                 continue
             stop = match.end("end")
             self.sentence.add(text[start:stop], node.pos + offset + start, node.pos + offset + stop)
@@ -535,17 +511,6 @@ class _Reader:
             self.sentence.add(text[start:], node.pos + offset + start, node.pos + offset + len(text))
             if text[start:].strip():
                 self.may_end = False
-
-    @staticmethod
-    def ends_sentence(text: str, match: re.Match[str]) -> bool:
-        """Tell whether the punctuation a boundary match found ends a sentence."""
-        word = re.search(r"(\S+)$", text[: match.start()])
-        if word is not None:
-            stem = word[1].lstrip("(\"'`~")
-            if stem.lower() in _ABBREVIATIONS or _INITIAL.fullmatch(stem):
-                return False
-        following = text[match.end() :]
-        return not (following and following[0].islower())
 
     def display(self, node: LatexNode, labels: list[str] | None = None) -> None:
         """Add an equation chunk for a display; it ends the sentence before it."""

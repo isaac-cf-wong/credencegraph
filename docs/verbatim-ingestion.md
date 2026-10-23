@@ -12,10 +12,10 @@ description:
 > `credencegraph.rubric`: text normalisation and the digest, rubric files, the
 > `anchored`, `typed` and `assessed` checks with faithfulness, coverage, and the
 > `check --rubric --level`, `coverage`, `split` and `annotate` commands. The
-> ingestion layer has the LaTeX reader and `ingest` (without `--format`, which
-> comes with the PDF reader). Not yet implemented: the PDF reader, `reanchor`,
-> and `add-node --origin`. The section on what the engine provided before this
-> contract describes it as it was and cites that code.
+> ingestion layer has the LaTeX reader, the PDF reader and `ingest` with
+> `--format`. Not yet implemented: `reanchor` and `add-node --origin`. The
+> section on what the engine provided before this contract describes it as it
+> was and cites that code.
 
 ## Why
 
@@ -87,7 +87,8 @@ Every node of an ingested graph has an **origin**, stored as
 - `sentence`: Sentence of running prose, including the abstract. Inline
   mathematics stays inside the text (as LaTeX when the input is LaTeX).
 - `equation`: Display equation or multi-line display (`equation`, `align`, …).
-  One node per display, not per line; its label, if any, is `attributes.label`.
+  One node per display, not per line; its label, if any, is `attributes.label`
+  (in a PDF, its printed equation number).
 - `caption`: Figure or table caption.
 - `footnote`: Footnote.
 - `reference`: Bibliography entry.
@@ -567,9 +568,7 @@ every kept, changed, new and removed node id and every dropped relation id.
 Ingestion layer:
 
 - `ingest SOURCE GRAPH [--rubric RUBRIC] [--document ID] [--format latex|pdf] [--force]`
-  writes a graph of document nodes for `SOURCE`. `--format` is not implemented
-  yet: it comes with the PDF reader, and until then `SOURCE` must be a `.tex`
-  file.
+  writes a graph of document nodes for `SOURCE`.
 
 Core:
 
@@ -588,9 +587,9 @@ Core:
 What the commands guarantee:
 
 - `ingest` is named so as not to change `init`, which creates an empty graph.
-  `--format`, once implemented, defaults from the extension (`.tex`, `.pdf`).
-  `--document` sets the anchors' document id and defaults to `SOURCE` as given.
-  Without `--rubric` every chunk starts `unassigned`. The written graph passes
+  `--format` defaults from the extension (`.tex`, `.pdf`). `--document` sets the
+  anchors' document id and defaults to `SOURCE` as given. Without `--rubric`
+  every chunk starts `unassigned`. The written graph passes
   `check --level anchored`.
 - `split --at` takes clauses that occur exactly once in the node's text; each
   must occur, or the command fails and the file is unchanged. Splitting a node
