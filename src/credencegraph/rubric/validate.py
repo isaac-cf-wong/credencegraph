@@ -1,9 +1,10 @@
 """Checking a graph against a rubric, level by level, and reporting how far classification has got.
 
 The levels nest: ``anchored`` checks that the graph is structurally sound, ``typed`` that every
-node has a type and what the type requires, and ``assessed`` that every node that needs an
-assessment has one and that the graph compiles. Every violation is reported, as a ``Finding`` whose
-``diagnostic`` is the violation's code and whose id is ``<code>:<node id>``.
+node has a type and what the type requires, with scopes and units that agree with what it rests
+on, and ``assessed`` that every node that needs an assessment has one and that the graph
+compiles. Every violation is reported, as a ``Finding`` whose ``diagnostic`` is the violation's
+code and whose id is ``<code>:<node id>``.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from dataclasses import dataclass
 
 from credencegraph.core.graph import Graph
 from credencegraph.core.node import Node
-from credencegraph.core.relation import Relation
+from credencegraph.core.relation import REQUIRES, Relation
 from credencegraph.diagnostics.records import Finding
 from credencegraph.diagnostics.structure import missing_parameters
 from credencegraph.rubric.faithfulness import unfaithful
@@ -36,7 +37,9 @@ from credencegraph.rubric.model import (
     FormField,
     Rubric,
 )
+from credencegraph.rubric.scope import UNBOUNDED, Interval, contains, intersection, is_empty, show
 from credencegraph.rubric.text import text_digest
+from credencegraph.rubric.units import agree
 from credencegraph.semantics.compiler import compile_graph
 from credencegraph.semantics.errors import CompileError
 
@@ -75,6 +78,9 @@ FORM_MISSING_FIELD = "form-missing-field"
 FORM_INVALID_FIELD = "form-invalid-field"
 FORM_NOT_IN_TEXT = "form-not-in-text"
 RESTS_ON_MISSING = "rests-on-missing"
+OUT_OF_DOMAIN = "out-of-domain"
+SCOPE_EXCEEDS_SUPPORT = "scope-exceeds-support"
+UNIT_MISMATCH = "unit-mismatch"
 UNASSESSED = "unassessed"
 NO_EVIDENCE = "no-evidence"
 MISSING_REASON = "missing-reason"
@@ -95,7 +101,16 @@ VIOLATION_CODES = {
         COMPOUND_CHILDREN,
         COMPOUND_HAS_CONTENT,
     ),
-    TYPED: (UNTYPED, FORM_MISSING_FIELD, FORM_INVALID_FIELD, FORM_NOT_IN_TEXT, RESTS_ON_MISSING),
+    TYPED: (
+        UNTYPED,
+        FORM_MISSING_FIELD,
+        FORM_INVALID_FIELD,
+        FORM_NOT_IN_TEXT,
+        RESTS_ON_MISSING,
+        OUT_OF_DOMAIN,
+        SCOPE_EXCEEDS_SUPPORT,
+        UNIT_MISMATCH,
+    ),
     ASSESSED: (UNASSESSED, NO_EVIDENCE, MISSING_REASON, COMPILE_ERROR),
 }
 
@@ -395,6 +410,97 @@ def _plain(value: object) -> object:
     return value
 
 
+def _fields(rubric: Rubric, node: Node, field_type: str) -> dict[str, object]:
+    """Return a document node's form fields of one field type that have that type, by name."""
+    node_type = rubric.types.get(node.kind)
+    form = node.attributes.get("form")
+    if node_type is None or origin_of(node) != DOCUMENT or not isinstance(form, Mapping):
+        return {}
+    return {
+        name: value
+        for name, value in form.items()
+        if (spec := node_type.form.get(name)) is not None and spec.type == field_type and _has_type(spec, value, rubric)
+    }
+
+
+def node_scope(rubric: Rubric, node: Node) -> dict[str, Interval]:
+    """Return the scope a node declares: per parameter, the intersection of its ``scope`` fields.
+
+    A parameter the node names in no valid ``scope`` field is absent: the node makes no claim about
+    it, so it is not checked on that parameter and, as something another node rests on, restricts
+    nothing there. A node with no such field, including every analyst and evidence node, therefore
+    declares no scope.
+
+    Args:
+        rubric: The rubric.
+        node: The node.
+
+    Returns:
+        The node's interval for each parameter it names.
+    """
+    scope: dict[str, Interval] = {}
+    for value in _fields(rubric, node, SCOPE).values():
+        for parameter, (low, high) in value.items():  # type: ignore[attr-defined]
+            scope[parameter] = intersection(scope.get(parameter, UNBOUNDED), (low, high))
+    return scope
+
+
+def _rests_on(graph: Graph, rubric: Rubric, node: Node) -> list[Relation]:
+    """Return the relations a node rests on: every ``requires`` into it, and those its type's edge rule counts."""
+    node_type = rubric.types.get(node.kind)
+    rule = node_type.rests_on if node_type is not None else None
+    return [
+        relation
+        for relation in graph.relations.values()
+        if relation.target == node.id
+        and (
+            relation.type == REQUIRES
+            or (rule is not None and relation.type == rule.relation and graph.nodes[relation.source].kind in rule.types)
+        )
+    ]
+
+
+def _scope_and_units(graph: Graph, rubric: Rubric, node: Node) -> list[Finding]:
+    """The ``out-of-domain``, ``scope-exceeds-support`` and ``unit-mismatch`` checks of one node."""
+    findings = []
+    scope = node_scope(rubric, node)
+    outside = [
+        f"{name} {show(interval)} is outside its domain {show(rubric.parameters[name].domain)}"
+        for name, interval in scope.items()
+        if not contains(rubric.parameters[name].domain, interval)
+    ]
+    if outside:
+        findings.append(_finding(OUT_OF_DOMAIN, node, "; ".join(outside)))
+    relations = _rests_on(graph, rubric, node)
+    support: dict[str, Interval] = {}
+    for relation in relations:
+        for name, interval in node_scope(rubric, graph.nodes[relation.source]).items():
+            support[name] = intersection(support.get(name, UNBOUNDED), interval)
+    exceeds = [
+        f"{name} {show(scope[name])} is not within {show(support[name])}"
+        + (", as the scopes it rests on do not overlap" if is_empty(support[name]) else ", what it rests on covers")
+        for name in scope
+        if name in support and not contains(support[name], scope[name])
+    ]
+    if exceeds:
+        ids = tuple(relation.id for relation in relations if node_scope(rubric, graph.nodes[relation.source]))
+        findings.append(_finding(SCOPE_EXCEEDS_SUPPORT, node, "; ".join(exceeds), ids))
+    quantities = _fields(rubric, node, QUANTITY)
+    mismatched: dict[str, list[str]] = {}
+    for relation in relations:
+        source = graph.nodes[relation.source]
+        for name, theirs in _fields(rubric, source, QUANTITY).items():
+            mine = quantities.get(name)
+            if mine is not None and not agree(mine["unit"], theirs["unit"]):  # type: ignore[index]
+                mismatched.setdefault(relation.id, []).append(
+                    f"{name!r} is in {mine['unit']!r} here but in {theirs['unit']!r} on {source.id!r}"  # type: ignore[index]
+                )
+    if mismatched:
+        messages = [message for messages in mismatched.values() for message in messages]
+        findings.append(_finding(UNIT_MISMATCH, node, "; ".join(messages), tuple(mismatched)))
+    return findings
+
+
 def _typed(graph: Graph, rubric: Rubric, structure: _Structure) -> list[Finding]:
     """Every ``typed`` violation, node by node in graph order."""
     findings = []
@@ -436,6 +542,7 @@ def _typed(graph: Graph, rubric: Rubric, structure: _Structure) -> list[Finding]
                         satisfying,
                     )
                 )
+        findings.extend(_scope_and_units(graph, rubric, node))
     return findings
 
 

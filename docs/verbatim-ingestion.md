@@ -207,6 +207,26 @@ string, must be found in it:
 node's domain. It is checked against what the node rests on by the scope
 diagnostics, not against the text. Its parameters are declared by the rubric.
 
+**Scopes.** An interval `[low, high]` holds both its ends; `null` is an open
+end, so `[10, null]` is every value of 10 or more and `[3, 3]` the single
+value 3. A node's scope on a parameter is the intersection of the intervals its
+`scope` fields give it. A parameter a node names in no `scope` field is not part
+of its scope: the node makes no claim about it, so it is not checked there and,
+as something another node rests on, restricts nothing there. A node with no
+`scope` field, which includes every analyst and evidence node, declares no
+scope. What a node rests on covers, on a parameter, the intersection of the
+scopes they declare there; when those scopes do not overlap, the intersection
+is empty and covers nothing.
+
+**Units.** A `quantity` unit is read as SI symbols, each with an optional SI
+prefix and integer power, joined by `*`, `·`, `⋅`, `×` or a space, with `/`
+dividing by everything after it: `Hz`, `kHz`, `m/s`, `m s^-1`, `kg m^2/s^2`.
+Besides the SI base and derived units it knows `eV`, `L`, `pc`, `yr`, `min`,
+`h`, `d`, `au`, `ly`, `rad`, `sr`, `%` and `1`. Two units agree when they are
+the same text or have the same dimension, so `Hz` agrees with `kHz` and `1/s`
+but not with `s`. Two different units of which either cannot be read do not
+agree, since nothing shows that they do.
+
 ### Analyst and evidence nodes
 
 An **implicit premise** has `origin = "analyst"`, a type the rubric allows for
@@ -428,6 +448,21 @@ This is what `ingest` must produce.
 - `form-not-in-text`: A `number`, `quantity`, `eqref` or `verbatim` value is not
   found in the node's text (faithfulness).
 - `rests-on-missing`: Fewer than `min` relations satisfy the type's edge rule.
+- `out-of-domain`: A node's scope reaches outside a parameter's declared
+  `domain`, such as a sample rate scoped at `[-3, -3]` against a domain of
+  `[0, inf]`.
+- `scope-exceeds-support`: A node's scope on a parameter is not contained in
+  the intersection of the scopes of what it rests on there, such as a claim
+  scoped to sample rates `[1, 1000]` Hz resting on a result scoped to
+  `[10, 100]` Hz.
+- `unit-mismatch`: A `quantity` field of a node and the field of the same name
+  on something it rests on have units of different dimensions, such as `Hz`
+  and `s`.
+
+The last three read what a node **rests on**: every `requires` relation into
+it, and the relations its type's edge rule counts. The scope and unit checks
+use only form fields that have their field type; the others are already
+`form-invalid-field`.
 
 **`assessed`** — additionally, every node of a type with `assess = true` has a
 verdict backed by evidence, or says why it was not assessed, and the graph
@@ -609,9 +644,9 @@ excluded. Given the same input file and the same version of the package, a
 reader produces the same chunks, which re-anchoring relies on.
 
 Not part of this contract: how chunks are found inside a document (sentence
-splitting, macro expansion, PDF layout analysis), units of measure beyond the
-token match above, the scope diagnostics, how check results are parameterised,
-and any merging of chunks a reader split wrongly.
+splitting, macro expansion, PDF layout analysis), converting values between
+units of measure (only their dimensions are compared), how check results are
+parameterised, and any merging of chunks a reader split wrongly.
 
 ## Example
 
@@ -698,8 +733,8 @@ s-031  claim   "Our filter recovers signals with amplitude above 0.1 in all test
        s-019 --requires--> s-031
 ```
 
-Both pass `typed`. The claim's scope, [1, 1000] Hz, is the analyst's reading of
-"all tested conditions" and is exempt from faithfulness; it exceeds the [10,
-100] Hz its method covers, which is what the scope diagnostics will flag.
+The method passes `typed`; the claim fails it with `scope-exceeds-support`. Its
+scope, [1, 1000] Hz, is the analyst's reading of "all tested conditions" and is
+exempt from faithfulness, but it exceeds the [10, 100] Hz its method covers.
 Setting `form.value = {"value": 0.2, "unit": "Hz"}` on the result `s-012a` would
 fail `typed` with `form-not-in-text`: neither 0.2 nor `Hz` is in its text.
