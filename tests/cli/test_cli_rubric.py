@@ -46,7 +46,7 @@ def test_check_levels(cli, paper):
     assert output == {
         "command": "check",
         "path": str(paper),
-        "rubric": {"name": "methods-paper", "version": "2026.1"},
+        "rubric": {"name": "methods-paper", "version": "2026.2"},
         "level": "anchored",
         "nodes": 2,
         "relations": 0,

@@ -153,6 +153,14 @@ def test_origin_not_allowed():
     assert violations(build(allowed), "anchored") == []
 
 
+def test_check_name_is_an_evidence_type():
+    """Test that a check name of the rubric is a type an evidence node may have, and only an evidence node."""
+    evidence = Node("x-1", "recompute-numbers", "Recomputed.", base=0.9, attributes={"origin": "evidence"})
+    assert violations(build(evidence), "anchored") == []
+    analyst = Node("x-1", "recompute-numbers", "Recomputed.", base=0.9, attributes={"origin": "analyst"})
+    assert violations(build(analyst), "anchored") == ["origin-not-allowed:x-1"]
+
+
 def test_anchor_invalid():
     """Test that a document node needs exactly one source with a locator, a quote and a digest."""
     assert violations(build(chunk("s-1", RESULT_TEXT, sources=())), "anchored") == ["anchor-invalid:s-1"]

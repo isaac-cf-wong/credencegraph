@@ -10,9 +10,12 @@ from __future__ import annotations
 from credencegraph.rubric.edit import annotate_node, parse_value, split_node
 from credencegraph.rubric.faithfulness import has_eqref, has_numeral, has_unit, numerals
 from credencegraph.rubric.model import (
+    Calibration,
+    Check,
     FormField,
     NodeType,
     Parameter,
+    Premises,
     RestsOn,
     Rubric,
     RubricError,
@@ -26,9 +29,12 @@ from credencegraph.rubric.validate import LEVELS, VIOLATION_CODES, check_graph, 
 __all__ = [
     "LEVELS",
     "VIOLATION_CODES",
+    "Calibration",
+    "Check",
     "FormField",
     "NodeType",
     "Parameter",
+    "Premises",
     "RestsOn",
     "Rubric",
     "RubricError",

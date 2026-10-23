@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import datetime
 import tomllib
 
 import pytest
 from _ingested import EXAMPLE_RUBRIC_PATH, RUBRIC
 
 from credencegraph.core import Beta, Point
-from credencegraph.rubric import RubricError, load_rubric, loads_rubric, rubric_from_dict
+from credencegraph.rubric import Calibration, Check, Premises, RubricError, load_rubric, loads_rubric, rubric_from_dict
 
 MINIMAL = """
 [rubric]
@@ -22,7 +23,7 @@ version = "1"
 
 def test_example_rubric():
     """Test that the documented example rubric loads with its types, fields, rules and parameters."""
-    assert RUBRIC.identity() == {"name": "methods-paper", "version": "2026.1"}
+    assert RUBRIC.identity() == {"name": "methods-paper", "version": "2026.2"}
     assert list(RUBRIC.types)[:3] == ["reference", "method", "result"]
     claim = RUBRIC.types["claim"]
     assert claim.assess
@@ -37,6 +38,34 @@ def test_example_rubric():
     assert RUBRIC.types["result"].origins == ("document",)
     assert RUBRIC.parameters["sample_rate"].domain == (0.0, None)
     assert RUBRIC.initial == {"reference": "reference"}
+
+
+def test_example_rubric_format_2_tables():
+    """Test that the example rubric's calibration, checks, premises and hedges load."""
+    assert RUBRIC.calibration == Calibration(
+        "example", "log", "nothing: the values are illustrative", datetime.date(2026, 10, 10)
+    )
+    assert list(RUBRIC.checks) == ["recompute-numbers", "citation-support"]
+    recompute = RUBRIC.checks["recompute-numbers"]
+    assert (recompute.targets, recompute.sensitivity, recompute.false_pass, recompute.models) == (
+        ("result", "claim"),
+        Beta(19, 1),
+        Beta(1, 9),
+        (),
+    )
+    assert RUBRIC.checks["citation-support"].models == ("example-model-2026-01-01",)
+    assert RUBRIC.premises == Premises(Beta(2, 2), Beta(9, 1), ("claim",), 3)
+    assert dict(RUBRIC.hedges) == {"suggests": Beta(6, 4), "may": Beta(5, 5), "we show": Beta(9, 1)}
+
+
+def test_check_names_are_evidence_types():
+    """Test that each check is also a node type of the rubric, for evidence nodes only, after the declared types."""
+    assert list(RUBRIC.types)[-2:] == ["recompute-numbers", "citation-support"]
+    check_type = RUBRIC.types["citation-support"]
+    assert (check_type.description, check_type.origins) == (
+        RUBRIC.checks["citation-support"].description,
+        ("evidence",),
+    )
 
 
 def test_minimal_rubric_defaults():
@@ -99,7 +128,7 @@ def test_type_errors(extra, message):
 @pytest.mark.parametrize(
     ("changes", "message"),
     [
-        ({"rubric": {"format": 2, "name": "n", "version": "1"}}, "not a known rubric format"),
+        ({"rubric": {"format": 3, "name": "n", "version": "1"}}, "not a known rubric format"),
         ({"rubric": {"format": True, "name": "n", "version": "1"}}, "not a known rubric format"),
         ({"rubric": {"format": 1, "name": "", "version": "1"}}, "rubric.name must be a non-empty string"),
         ({"rubric": {"format": 1, "name": "n"}}, "missing \\['version'\\]"),
@@ -152,3 +181,132 @@ def test_documented_rubric_is_the_example_file():
     page = (EXAMPLE_RUBRIC_PATH.parents[1] / "verbatim-ingestion.md").read_text(encoding="utf-8")
     printed = page.split("```toml\n", 1)[1].split("```", 1)[0]
     assert tomllib.loads(printed) == tomllib.loads(EXAMPLE_RUBRIC_PATH.read_text(encoding="utf-8"))
+
+
+FORMAT_2 = """
+[rubric]
+format = 2
+name = "tiny"
+version = "2"
+
+[types.result]
+[types.claim]
+"""
+
+CHECK = {"targets": ["result"], "sensitivity": "beta:9,1", "false_pass": "beta:1,9", "models": []}
+CALIBRATION = {"status": "example", "scoring": "brier", "against": "nothing", "date": datetime.date(2026, 1, 1)}
+PREMISES = {"base": "beta:2,2", "strength": "beta:9,1", "for": ["claim"], "max_per_conclusion": 2}
+
+
+def _format_2(**changes) -> dict:
+    """The minimal format-2 rubric as data, with top-level tables replaced."""
+    data = tomllib.loads(FORMAT_2)
+    data.update(changes)
+    return data
+
+
+def test_minimal_format_2_rubric():
+    """Test that a format-2 rubric without the new tables loads with none of them."""
+    rubric = loads_rubric(FORMAT_2)
+    assert (rubric.calibration, dict(rubric.checks), rubric.premises, dict(rubric.hedges)) == (None, {}, None, {})
+    assert list(rubric.types) == ["result", "claim"]
+
+
+def test_format_2_tables_load():
+    """Test that each format-2 table loads into the rubric."""
+    rubric = rubric_from_dict(
+        _format_2(
+            calibration=CALIBRATION,
+            checks={"rerun": {**CHECK, "description": "Rerun it.", "models": ["m-1"]}},
+            premises=PREMISES,
+            hedges={"may": 0.5},
+        )
+    )
+    assert rubric.calibration == Calibration("example", "brier", "nothing", datetime.date(2026, 1, 1))
+    assert rubric.checks["rerun"] == Check("rerun", ("result",), Beta(9, 1), Beta(1, 9), ("m-1",), "Rerun it.")
+    assert rubric.premises == Premises(Beta(2, 2), Beta(9, 1), ("claim",), 2)
+    assert rubric.hedge("may") == Point(0.5)
+
+
+@pytest.mark.parametrize(
+    "table",
+    [
+        {"calibration": CALIBRATION},
+        {"checks": {"rerun": CHECK}},
+        {"premises": PREMISES},
+        {"hedges": {"may": 0.5}},
+    ],
+)
+def test_format_1_refuses_format_2_tables(table):
+    """Test that a format-1 rubric may not use a format-2 table, and the same table loads in format 2."""
+    with pytest.raises(RubricError, match=f"unknown keys \\['{next(iter(table))}'\\]"):
+        rubric_from_dict(_data(**table))
+    rubric_from_dict(_format_2(**table))
+
+
+def test_hedges_are_compared_after_normalisation_and_case_folding():
+    """Test that a hedge is found whatever its case and whitespace, and stored under its normalised key."""
+    rubric = rubric_from_dict(_format_2(hedges={"We  Show": "beta:9,1", "STRASSE": 0.6}))
+    assert dict(rubric.hedges) == {"we show": Beta(9, 1), "strasse": Point(0.6)}
+    assert rubric.hedge(" we\nSHOW ") == Beta(9, 1)
+    assert rubric.hedge("Straße") == Point(0.6)
+    assert rubric.hedge("we showed") is None
+
+
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        # A check name is an evidence node type, so it may not also be a declared or built-in type.
+        ({"checks": {"result": CHECK}}, "checks.result: a check name is an evidence node type"),
+        ({"checks": {"compound": CHECK}}, "checks.compound: a check name is an evidence node type"),
+        # E[sensitivity] > E[false_pass], strictly.
+        (
+            {"checks": {"rerun": {**CHECK, "sensitivity": "beta:1,9", "false_pass": "beta:9,1"}}},
+            "the mean of sensitivity .* must exceed the mean of false_pass",
+        ),
+        (
+            {"checks": {"rerun": {**CHECK, "sensitivity": "beta:5,5", "false_pass": 0.5}}},
+            "the mean of sensitivity .* must exceed the mean of false_pass",
+        ),
+        ({"checks": {"rerun": {**CHECK, "sensitivity": "beta:0,1"}}}, "checks.rerun.sensitivity: .*Beta.alpha"),
+        ({"checks": {"rerun": {**CHECK, "false_pass": True}}}, "checks.rerun.false_pass must be a probability"),
+        # targets and premises.for name declared types, not check types.
+        ({"checks": {"rerun": {**CHECK, "targets": ["finding"]}}}, "checks.rerun.targets names 'finding'"),
+        (
+            {"checks": {"rerun": CHECK, "audit": {**CHECK, "targets": ["rerun"]}}},
+            "checks.audit.targets names 'rerun', which is not a declared type",
+        ),
+        ({"checks": {"rerun": {**CHECK, "targets": []}}}, "checks.rerun.targets must be a non-empty array"),
+        ({"premises": {**PREMISES, "for": ["finding"]}}, "premises.for names 'finding', which is not a declared type"),
+        # Unknown and missing keys.
+        ({"checks": {"rerun": {**CHECK, "model": []}}}, "checks.rerun has unknown keys \\['model'\\]"),
+        ({"checks": {"rerun": {k: v for k, v in CHECK.items() if k != "models"}}}, "missing \\['models'\\]"),
+        ({"checks": {"rerun": {**CHECK, "models": "m-1"}}}, "checks.rerun.models must be an array"),
+        ({"checks": {"rerun": {**CHECK, "models": ["m-1", "m-1"]}}}, "lists a value twice"),
+        ({"checks": {"rerun": "beta:9,1"}}, "checks.rerun must be a table"),
+        ({"calibration": {**CALIBRATION, "fitted": True}}, "calibration has unknown keys \\['fitted'\\]"),
+        ({"calibration": {"status": "example"}}, "calibration is missing"),
+        ({"calibration": {**CALIBRATION, "status": "draft"}}, "calibration.status must be one of"),
+        ({"calibration": {**CALIBRATION, "scoring": "spherical"}}, "calibration.scoring must be one of"),
+        ({"calibration": {**CALIBRATION, "against": ""}}, "calibration.against must be a non-empty string"),
+        ({"calibration": {**CALIBRATION, "date": "2026-01-01"}}, "calibration.date must be a date"),
+        (
+            {"calibration": {**CALIBRATION, "date": datetime.datetime(2026, 1, 1, tzinfo=datetime.UTC)}},
+            "calibration.date must be a date",
+        ),
+        ({"premises": {**PREMISES, "maximum": 1}}, "premises has unknown keys \\['maximum'\\]"),
+        ({"premises": {"base": "beta:2,2"}}, "premises is missing"),
+        ({"premises": {**PREMISES, "max_per_conclusion": 0}}, "integer of 1 or more"),
+        ({"premises": {**PREMISES, "max_per_conclusion": True}}, "integer of 1 or more"),
+        ({"premises": {**PREMISES, "strength": "strong"}}, "premises.strength"),
+        ({"rules": {}}, "unknown keys \\['rules'\\]"),
+        # Hedge keys are compared after normalisation and case-folding.
+        ({"hedges": {"We show": 0.9, "we  SHOW": 0.8}}, "'We show' and 'we  SHOW' are the same phrase"),
+        ({"hedges": {" ": 0.5}}, "empty once normalised"),
+        ({"hedges": {"may": "maybe"}}, "hedges.may"),
+    ],
+)
+def test_format_2_errors(changes, message):
+    """Test that each breach of a format-2 rule is refused with a message naming it."""
+    with pytest.raises(RubricError, match=message):
+        rubric_from_dict(_format_2(**changes))

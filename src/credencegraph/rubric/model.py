@@ -6,6 +6,7 @@ is an error rather than a rule silently ignored.
 
 from __future__ import annotations
 
+import datetime
 import math
 import tomllib
 from collections.abc import Mapping
@@ -17,8 +18,18 @@ from typing import Any
 from credencegraph.core.credence import Credence, as_credence, parse_credence
 from credencegraph.core.errors import CredenceGraphError, ValidationError
 from credencegraph.core.relation import REQUIRES, SUPPORTS
+from credencegraph.rubric.text import normalise_text
 
-RUBRIC_FORMAT = 1
+# The rubric formats this version reads, and the top-level tables of each. Format 2 adds calibration metadata,
+# check types, the implicit-premise pass and hedges to format 1; a format-1 file may not use them.
+_FORMAT_1_TABLES = frozenset({"rubric", "parameters", "initial", "types"})
+RUBRIC_TABLES = MappingProxyType(
+    {1: _FORMAT_1_TABLES, 2: _FORMAT_1_TABLES | {"calibration", "checks", "premises", "hedges"}}
+)
+
+# The calibration statuses and the proper scoring rules a rubric's values may be fitted with.
+CALIBRATION_STATUSES = ("example", "calibrated")
+SCORING_RULES = ("brier", "log")
 
 # The origins of a node: a chunk of the document, an implicit premise, or evidence about another node.
 DOCUMENT = "document"
@@ -119,15 +130,86 @@ class NodeType:
 
 
 @dataclass(frozen=True, slots=True)
+class Calibration:
+    """How a rubric's values were obtained.
+
+    Attributes:
+        status: ``example`` for illustrative values, ``calibrated`` for values fitted against known outcomes.
+        scoring: The proper scoring rule the values were fitted with: ``brier`` or ``log``.
+        against: The outcome set the values were fitted on, in words.
+        date: When the values were fitted.
+    """
+
+    status: str
+    scoring: str
+    against: str
+    date: datetime.date
+
+
+@dataclass(frozen=True, slots=True)
+class Check:
+    """A check type: a kind of evidence node, and how far its outcome can be trusted.
+
+    Attributes:
+        name: The check's name, which is also the type of the evidence nodes it produces.
+        targets: The declared types it may be run on.
+        sensitivity: ``P(pass | target true)``.
+        false_pass: ``P(pass | target false)``; its mean is below that of ``sensitivity``.
+        models: The exact model ids the values were fitted with; empty for a check with no model in the loop.
+        description: What the check does, shown in reports.
+    """
+
+    name: str
+    targets: tuple[str, ...]
+    sensitivity: Credence
+    false_pass: Credence
+    models: tuple[str, ...]
+    description: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class Premises:
+    """The implicit-premise pass: the priors of the premises an analyst adds to a conclusion.
+
+    Attributes:
+        base: The prior of an implicit premise.
+        strength: The strength of its ``requires`` relation into the conclusion.
+        for_types: The conclusion types the pass runs on (``for`` in the file).
+        max_per_conclusion: How many premises one conclusion may receive at most.
+    """
+
+    base: Credence
+    strength: Credence
+    for_types: tuple[str, ...]
+    max_per_conclusion: int
+
+
+def hedge_key(phrase: str) -> str:
+    """Return the form a hedge phrase is compared in: normalised with ``normalise_text``, then case-folded.
+
+    Args:
+        phrase: The phrase as written.
+
+    Returns:
+        The comparison key.
+    """
+    return normalise_text(phrase).casefold()
+
+
+@dataclass(frozen=True, slots=True)
 class Rubric:
     """A rubric: node types, their forms and edge rules, and the parameters scopes range over.
 
     Attributes:
         name: Identifies the rubric in reports.
         version: The rubric's own version, chosen by its author.
-        types: The declared types by name, in declaration order.
+        types: The node types by name: the declared types in declaration order, then one evidence type per check.
         parameters: The parameters by name.
         initial: The type each chunk unit starts with, by unit.
+        calibration: How the values were obtained, if the rubric says.
+        checks: The check types by name, in declaration order.
+        premises: The implicit-premise pass, if the rubric configures one.
+        hedges: The credence each hedge phrase carries, keyed by ``hedge_key``.
     """
 
     name: str
@@ -135,6 +217,10 @@ class Rubric:
     types: Mapping[str, NodeType]
     parameters: Mapping[str, Parameter] = field(default_factory=dict)
     initial: Mapping[str, str] = field(default_factory=dict)
+    calibration: Calibration | None = None
+    checks: Mapping[str, Check] = field(default_factory=dict)
+    premises: Premises | None = None
+    hedges: Mapping[str, Credence] = field(default_factory=dict)
 
     def identity(self) -> dict[str, str]:
         """Return the rubric's name and version, as echoed in every report.
@@ -143,6 +229,17 @@ class Rubric:
             ``{"name", "version"}``.
         """
         return {"name": self.name, "version": self.version}
+
+    def hedge(self, phrase: str) -> Credence | None:
+        """Return the credence of a hedge phrase, compared after normalisation and case-folding.
+
+        Args:
+            phrase: The phrase as it appears in a text.
+
+        Returns:
+            The credence, or ``None`` if the rubric does not list the phrase.
+        """
+        return self.hedges.get(hedge_key(phrase))
 
 
 def _table(
@@ -181,6 +278,16 @@ def _strings(value: Any, path: str) -> tuple[str, ...]:
         msg = f"{path} lists a value twice: {list(items)}"
         raise RubricError(msg)
     return items
+
+
+def _names(value: Any, path: str, declared: Mapping[str, NodeType]) -> tuple[str, ...]:
+    """Check that ``value`` is a non-empty array of distinct names of ``declared`` types."""
+    names = _strings(value, path)
+    for name in names:
+        if name not in declared:
+            msg = f"{path} names {name!r}, which is not a declared type"
+            raise RubricError(msg)
+    return names
 
 
 def _bool(value: Any, path: str) -> bool:
@@ -277,6 +384,84 @@ def _node_type(name: str, value: Any) -> NodeType:
     )
 
 
+def _calibration(value: Any) -> Calibration:
+    """Read the calibration metadata."""
+    keys = frozenset({"status", "scoring", "against", "date"})
+    table = _table(value, "calibration", set(keys), keys)
+    for key, allowed in (("status", CALIBRATION_STATUSES), ("scoring", SCORING_RULES)):
+        if table[key] not in allowed:
+            msg = f"calibration.{key} must be one of {list(allowed)}, got {table[key]!r}"
+            raise RubricError(msg)
+    date = table["date"]
+    if type(date) is not datetime.date:
+        msg = f"calibration.date must be a date such as 2026-10-10, got {date!r}"
+        raise RubricError(msg)
+    return Calibration(table["status"], table["scoring"], _string(table["against"], "calibration.against"), date)
+
+
+def _check(name: str, value: Any, types: Mapping[str, NodeType]) -> Check:
+    """Read one check type against the declared types."""
+    path = f"checks.{name}"
+    if name in types or name in BUILTIN_TYPES:
+        msg = f"{path}: a check name is an evidence node type, and {name!r} is already a type"
+        raise RubricError(msg)
+    required = frozenset({"targets", "sensitivity", "false_pass", "models"})
+    table = _table(value, path, {"description", *required}, required)
+    sensitivity = _credence(table["sensitivity"], f"{path}.sensitivity")
+    false_pass = _credence(table["false_pass"], f"{path}.false_pass")
+    if not sensitivity.mean > false_pass.mean:
+        msg = (
+            f"{path}: the mean of sensitivity ({sensitivity.mean!r}) must exceed the mean of false_pass "
+            f"({false_pass.mean!r}), or a pass is no evidence for the target"
+        )
+        raise RubricError(msg)
+    models = table["models"]
+    if not isinstance(models, list):
+        msg = f"{path}.models must be an array of model ids, empty for no model in the loop, got {models!r}"
+        raise RubricError(msg)
+    return Check(
+        name,
+        _names(table["targets"], f"{path}.targets", types),
+        sensitivity,
+        false_pass,
+        _strings(models, f"{path}.models") if models else (),
+        _string(table["description"], f"{path}.description") if "description" in table else "",
+    )
+
+
+def _premises(value: Any, types: Mapping[str, NodeType]) -> Premises:
+    """Read the implicit-premise pass against the declared types."""
+    keys = frozenset({"base", "strength", "for", "max_per_conclusion"})
+    table = _table(value, "premises", set(keys), keys)
+    maximum = table["max_per_conclusion"]
+    if isinstance(maximum, bool) or not isinstance(maximum, int) or maximum < 1:
+        msg = f"premises.max_per_conclusion must be an integer of 1 or more, got {maximum!r}"
+        raise RubricError(msg)
+    return Premises(
+        _credence(table["base"], "premises.base"),
+        _credence(table["strength"], "premises.strength"),
+        _names(table["for"], "premises.for", types),
+        maximum,
+    )
+
+
+def _hedges(value: Any) -> dict[str, Credence]:
+    """Read the hedge phrases, keyed by ``hedge_key``; two phrases with one key are an error."""
+    hedges: dict[str, Credence] = {}
+    written: dict[str, str] = {}
+    for phrase, credence in _table(value, "hedges").items():
+        key = hedge_key(phrase)
+        if not key:
+            msg = f"hedges: the phrase {phrase!r} is empty once normalised"
+            raise RubricError(msg)
+        if key in hedges:
+            msg = f"hedges: {written[key]!r} and {phrase!r} are the same phrase once normalised and case-folded"
+            raise RubricError(msg)
+        hedges[key] = _credence(credence, f"hedges.{phrase}")
+        written[key] = phrase
+    return hedges
+
+
 def rubric_from_dict(data: Any) -> Rubric:
     """Build a rubric from the data of a rubric file.
 
@@ -289,11 +474,13 @@ def rubric_from_dict(data: Any) -> Rubric:
     Raises:
         RubricError: If the data breaks a rule of the rubric format, or its format is unknown.
     """
-    top = _table(data, "the rubric", {"rubric", "parameters", "initial", "types"}, frozenset({"rubric", "types"}))
+    top = _table(data, "the rubric", None, frozenset({"rubric", "types"}))
     header = _table(top["rubric"], "rubric", {"format", "name", "version"}, frozenset({"format", "name", "version"}))
-    if type(header["format"]) is not int or header["format"] != RUBRIC_FORMAT:
-        msg = f"rubric.format {header['format']!r} is not a known rubric format; this version reads {RUBRIC_FORMAT}"
+    rubric_format = header["format"]
+    if type(rubric_format) is not int or rubric_format not in RUBRIC_TABLES:
+        msg = f"rubric.format {rubric_format!r} is not a known rubric format; this version reads {list(RUBRIC_TABLES)}"
         raise RubricError(msg)
+    _table(top, "the rubric", set(RUBRIC_TABLES[rubric_format]))
     parameters = {}
     for name, value in _table(top.get("parameters", {}), "parameters").items():
         table = _table(value, f"parameters.{name}", {"unit", "domain"}, frozenset({"unit"}))
@@ -313,12 +500,21 @@ def rubric_from_dict(data: Any) -> Rubric:
             msg = f"initial.{unit} names {name!r}, which is not a declared type allowed for document nodes"
             raise RubricError(msg)
         initial[unit] = name
+    checks = {name: _check(name, value, types) for name, value in _table(top.get("checks", {}), "checks").items()}
+    premises = _premises(top["premises"], types) if "premises" in top else None
+    # A check name is an evidence node type: the evidence nodes a check produces have it as their type.
+    for check in checks.values():
+        types[check.name] = NodeType(check.name, check.description, (EVIDENCE,))
     return Rubric(
         _string(header["name"], "rubric.name"),
         _string(header["version"], "rubric.version"),
         MappingProxyType(types),
         MappingProxyType(parameters),
         MappingProxyType(initial),
+        _calibration(top["calibration"]) if "calibration" in top else None,
+        MappingProxyType(checks),
+        premises,
+        MappingProxyType(_hedges(top.get("hedges", {}))),
     )
 
 

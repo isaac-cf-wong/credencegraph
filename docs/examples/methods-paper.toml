@@ -2,9 +2,17 @@
 # of credencegraph; its priors are illustrative, not a recommendation.
 
 [rubric]
-format = 1             # the rubric format version this file is written in
+format = 2             # the rubric format version this file is written in
 name = "methods-paper" # identifies the rubric in reports
-version = "2026.1"     # the rubric's own version, chosen by its author
+version = "2026.2"     # the rubric's own version: changes whenever any value in the file changes
+
+# How the values were obtained. These are illustrative, fitted against nothing. `status` is "example" or
+# "calibrated"; `scoring` is the proper scoring rule the values were fitted with, "brier" or "log".
+[calibration]
+status = "example"
+scoring = "log"
+against = "nothing: the values are illustrative"
+date = 2026-10-10
 
 # Parameters that `scope` fields may range over. TOML has no null, so an open end is -inf or inf.
 [parameters.sample_rate]
@@ -85,5 +93,37 @@ origins = ["document", "analyst"]
 base = "beta:8,2"
 
 [types.check]
-description = "A check run on another node."
+description = "A check run on another node, of a kind not listed under [checks]."
 origins = ["evidence"]
+
+# Check types. A check name is the type of the evidence nodes the check produces, so it may not also be
+# declared under [types]. `targets` are the declared types a check may be run on; `sensitivity` is
+# P(pass | target true) and `false_pass` is P(pass | target false), and the mean of `sensitivity` must exceed
+# the mean of `false_pass`. `models` lists the exact model ids the values were fitted with, and is empty for a
+# check with no model in the loop.
+[checks.recompute-numbers]
+description = "Re-evaluate an arithmetic relation between numbers the text reports."
+targets = ["result", "claim"]
+sensitivity = "beta:19,1"
+false_pass = "beta:1,9"
+models = []
+
+[checks.citation-support]
+description = "Judge whether the cited source supports the citing sentence."
+targets = ["literature_claim"]
+sensitivity = "beta:8,2"
+false_pass = "beta:2,8"
+models = ["example-model-2026-01-01"]
+
+# The implicit-premise pass.
+[premises]
+base = "beta:2,2"      # the prior of an implicit premise
+strength = "beta:9,1"  # the strength of its requires relation into the conclusion
+for = ["claim"]        # the conclusion types the pass runs on
+max_per_conclusion = 3
+
+# Hedge phrases and the credence each carries; compared after text normalisation and case-folding.
+[hedges]
+"suggests" = "beta:6,4"
+"may" = "beta:5,5"
+"we show" = "beta:9,1"
