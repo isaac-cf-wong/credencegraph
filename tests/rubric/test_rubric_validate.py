@@ -22,7 +22,7 @@ from _ingested import (
 )
 
 from credencegraph.core import Beta, Node, Relation, SourceAnchor
-from credencegraph.rubric import VIOLATION_CODES, check_graph, text_digest
+from credencegraph.rubric import VIOLATION_CODES, check_graph, loads_rubric, text_digest
 
 
 def test_baselines_pass():
@@ -462,3 +462,154 @@ def test_baseline_bases_are_beta():
     assert result.base == Beta(8, 2)
     assert claim.base == RUBRIC.types["claim"].base
     assert RESULT_TEXT in result.statement
+
+
+# --- scopes and units -----------------------------------------------------------------------------
+
+FILTER_CLAIM = "Our filter recovers signals with amplitude above 0.1 in all tested conditions."
+FILTER_TEST = "We tested the filter on simulated data sampled between 10 and 100 Hz."
+
+
+def _scoped_test(node_id: str, scope: dict | None) -> Node:
+    """The filter test, a method node, with a scope field if one is given."""
+    form = {"kind": "simulation"} | ({"scope": scope} if scope is not None else {})
+    return chunk(node_id, FILTER_TEST, "method", attributes={"origin": "document", "form": form})
+
+
+def _claim(scope: dict | None) -> Node:
+    """The filter claim, with a scope field if one is given."""
+    form = {"shape": "universal", "statement": "Our filter recovers signals with amplitude above 0.1"}
+    form |= {"scope": scope} if scope is not None else {}
+    return chunk("s-2", FILTER_CLAIM, "claim", attributes={"origin": "document", "form": form})
+
+
+def _resting(claim_scope: dict | None, *test_scopes: dict | None) -> list[str]:
+    """The ``typed`` violations of the claim resting, by ``requires``, on one test per scope given."""
+    tests = [_scoped_test(f"s-{10 + i}", scope) for i, scope in enumerate(test_scopes)]
+    relations = tuple(Relation(f"r{i}", "requires", test.id, "s-2", strength=0.9) for i, test in enumerate(tests))
+    return violations(build(*tests, _claim(claim_scope), relations=relations))
+
+
+def test_dummy_claim_scoped_beyond_its_test_exceeds_support():
+    """Test the dummy example: a claim over sample rates [1, 1000] Hz resting on a test over [10, 100] Hz."""
+    test = _scoped_test("s-1", {"sample_rate": [10, 100]})
+    claim = _claim({"sample_rate": [1, 1000]})
+    rests = Relation("r", "requires", "s-1", "s-2", strength=0.9)
+    (finding,) = check_graph(build(test, claim, rests), RUBRIC, "typed")
+    assert finding.id == "scope-exceeds-support:s-2"
+    assert finding.relations == ("r",)
+    assert "sample_rate [1, 1000] is not within [10, 100]" in finding.message
+
+
+@pytest.mark.parametrize(
+    ("claim", "test", "exceeds"),
+    [
+        ([20, 50], [10, 100], False),
+        ([10, 100], [10, 100], False),
+        ([100, 100], [10, 100], False),
+        ([5, 50], [10, 100], True),
+        ([50, 101], [10, 100], True),
+        ([20, None], [10, None], False),
+        ([1, None], [10, None], True),
+        ([20, None], [10, 100], True),
+        ([0, None], [0, None], False),
+        ([0, 50], [5, None], True),
+    ],
+)
+def test_scope_must_lie_within_what_it_rests_on(claim, test, exceeds):
+    """Test containment with bounded, degenerate and open-ended intervals: an open end fits only in an open end."""
+    expected = ["scope-exceeds-support:s-2"] if exceeds else []
+    assert _resting({"sample_rate": claim}, {"sample_rate": test}) == expected
+
+
+def test_scope_is_checked_against_the_intersection_of_what_it_rests_on():
+    """Test that two tests over [10, 100] and [50, 200] Hz cover only [50, 100] Hz, and disjoint ones nothing."""
+    assert _resting({"sample_rate": [60, 90]}, {"sample_rate": [10, 100]}, {"sample_rate": [50, 200]}) == []
+    assert _resting({"sample_rate": [20, 90]}, {"sample_rate": [10, 100]}, {"sample_rate": [50, 200]}) == [
+        "scope-exceeds-support:s-2"
+    ]
+    tests = [_scoped_test("s-10", {"sample_rate": [10, 20]}), _scoped_test("s-11", {"sample_rate": [30, 40]})]
+    relations = tuple(Relation(f"r{i}", "requires", test.id, "s-2", strength=0.9) for i, test in enumerate(tests))
+    (finding,) = check_graph(build(*tests, _claim({"sample_rate": [15, 15]}), relations=relations), RUBRIC)
+    assert finding.relations == ("r0", "r1")
+    assert "is not within empty, as the scopes it rests on do not overlap" in finding.message
+
+
+def test_an_undeclared_scope_restricts_and_claims_nothing():
+    """Test the default: a parameter a node does not scope is neither checked on it nor restricted by it."""
+    assert _resting(None, {"sample_rate": [10, 100]}) == []
+    assert _resting({"sample_rate": [1, 1000]}, None) == []
+    assert _resting({"segment_length": [1, 1000]}, {"sample_rate": [10, 100]}) == []
+    assert _resting({"sample_rate": [1, 1000]}, None, {"sample_rate": [10, 100]}) == ["scope-exceeds-support:s-2"]
+
+
+def test_only_what_a_node_rests_on_bounds_its_scope():
+    """Test that a relation outside the edge rule, here a supports from a method, does not restrict the scope."""
+    test = _scoped_test("s-1", {"sample_rate": [10, 100]})
+    claim = _claim({"sample_rate": [1, 1000]})
+    supports = Relation("r", "supports", "s-1", "s-2", strength=0.9)
+    assert violations(build(test, claim, supports)) == ["rests-on-missing:s-2"]
+    requires = Relation("r2", "requires", "s-1", "s-2", strength=0.9)
+    assert violations(build(test, claim, supports, requires)) == ["scope-exceeds-support:s-2"]
+
+
+def test_invalid_scope_field_is_left_to_form_invalid_field():
+    """Test that a scope naming an undeclared parameter is reported once, as an invalid field."""
+    assert _resting({"temperature": [0, 1]}, {"sample_rate": [10, 100]}) == ["form-invalid-field:s-2"]
+
+
+@pytest.mark.parametrize(
+    ("scope", "outside"),
+    [
+        ([-3, -3], True),
+        ([-1, 10], True),
+        ([None, 10], True),
+        ([0, None], False),
+        ([0, 0], False),
+    ],
+)
+def test_scope_outside_the_parameter_domain(scope, outside):
+    """Test ``out-of-domain`` against the example's sample-rate domain [0, inf), with open and degenerate scopes."""
+    assert _resting({"sample_rate": scope}, None) == (["out-of-domain:s-2"] if outside else [])
+
+
+def test_out_of_domain_names_the_parameter_and_its_domain():
+    """Test the message of an ``out-of-domain`` finding, against a ratio declared to lie in [0, 1]."""
+    rubric = loads_rubric(
+        '[rubric]\nformat = 1\nname = "r"\nversion = "1"\n[parameters.ratio]\nunit = "1"\ndomain = [0, 1]\n'
+        '[types.method]\nform.scope = { type = "scope" }\n'
+    )
+    node = chunk(
+        "s-1", FILTER_TEST, "method", attributes={"origin": "document", "form": {"scope": {"ratio": [-3, -3]}}}
+    )
+    (finding,) = check_graph(build(node), rubric)
+    assert finding.id == "out-of-domain:s-1"
+    assert "ratio [-3, -3] is outside its domain [0, 1]" in finding.message
+
+
+def _measured(node_id: str, text: str, value: float, unit: str) -> Node:
+    """A result node with a quantity field ``value``."""
+    form = {"quantity": "The noise", "value": {"value": value, "unit": unit}}
+    return chunk(node_id, text, "result", base=Beta(8, 2), attributes={"origin": "document", "form": form})
+
+
+@pytest.mark.parametrize(
+    ("unit", "mismatch"),
+    [("s", True), ("m", True), ("Hz", False), ("kHz", False), ("1/s", False), ("bananas", True)],
+)
+def test_connected_quantities_need_units_of_one_dimension(unit, mismatch):
+    """Test ``unit-mismatch`` between a quantity in Hz and the same field on a node it rests on."""
+    upper = _measured("s-1", "The noise peaks at 10 Hz.", 10, "Hz")
+    lower = _measured("s-3", f"The noise peaks at 0.1 {unit}.", 0.1, unit)
+    rests = Relation("r", "requires", "s-3", "s-1", strength=0.9)
+    assert violations(build(upper, lower, rests)) == (["unit-mismatch:s-1"] if mismatch else [])
+
+
+def test_unit_mismatch_is_only_between_fields_of_one_name_on_connected_nodes():
+    """Test that units are compared field by field along what a node rests on, and the finding names the relation."""
+    upper = _measured("s-1", "The noise peaks at 10 Hz.", 10, "Hz")
+    lower = _measured("s-3", "The noise peaks at 0.1 s.", 0.1, "s")
+    assert violations(build(upper, lower)) == []
+    (finding,) = check_graph(build(upper, lower, Relation("r", "requires", "s-3", "s-1", strength=0.9)), RUBRIC)
+    assert finding.relations == ("r",)
+    assert "'value' is in 'Hz' here but in 's' on 's-3'" in finding.message
