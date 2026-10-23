@@ -42,6 +42,92 @@
                 "digest": { "type": ["string", "null"], "minLength": 1 }
             }
         },
+        "digest": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        "script": { "type": "string", "pattern": "\\.py$" },
+        "obligation": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["statement"],
+            "properties": {
+                "statement": { "type": "string", "minLength": 1 },
+                "discharge": {
+                    "oneOf": [
+                        { "$ref": "#/$defs/discharge" },
+                        { "type": "null" }
+                    ]
+                }
+            }
+        },
+        "discharge": {
+            "oneOf": [
+                {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["kind", "theorem"],
+                    "properties": {
+                        "kind": { "const": "formal" },
+                        "theorem": { "type": "string", "minLength": 1 }
+                    }
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["kind", "script"],
+                    "dependentRequired": {
+                        "digest": ["status"],
+                        "status": ["digest"]
+                    },
+                    "properties": {
+                        "kind": { "const": "symbolic" },
+                        "script": { "$ref": "#/$defs/script" },
+                        "digest": { "$ref": "#/$defs/digest" },
+                        "status": { "type": "integer" }
+                    }
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["kind", "script", "value", "tolerance"],
+                    "dependentRequired": {
+                        "digest": ["status"],
+                        "status": ["digest"]
+                    },
+                    "properties": {
+                        "kind": { "const": "numerical" },
+                        "script": { "$ref": "#/$defs/script" },
+                        "digest": { "$ref": "#/$defs/digest" },
+                        "status": { "type": "integer" },
+                        "value": { "type": "number" },
+                        "tolerance": { "type": "number", "exclusiveMinimum": 0 }
+                    }
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["kind", "anchor"],
+                    "properties": {
+                        "kind": { "const": "citation" },
+                        "anchor": {
+                            "allOf": [
+                                { "$ref": "#/$defs/anchor" },
+                                {
+                                    "required": ["quote"],
+                                    "properties": {
+                                        "quote": { "type": "string" }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                },
+                {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["kind"],
+                    "properties": { "kind": { "const": "judgement" } }
+                }
+            ]
+        },
         "node": {
             "type": "object",
             "additionalProperties": false,
@@ -84,7 +170,13 @@
                         { "type": "null" }
                     ]
                 },
-                "attributes": { "$ref": "#/$defs/attributes" }
+                "attributes": { "$ref": "#/$defs/attributes" },
+                "obligation": {
+                    "oneOf": [
+                        { "$ref": "#/$defs/obligation" },
+                        { "type": "null" }
+                    ]
+                }
             },
             "allOf": [
                 {
@@ -102,6 +194,26 @@
                         }
                     },
                     "else": { "properties": { "strength": { "type": "null" } } }
+                },
+                {
+                    "if": {
+                        "not": {
+                            "properties": {
+                                "type": {
+                                    "enum": [
+                                        "requires",
+                                        "supports",
+                                        "refutes",
+                                        "equivalent",
+                                        "exclusive"
+                                    ]
+                                }
+                            }
+                        }
+                    },
+                    "then": {
+                        "properties": { "obligation": { "type": "null" } }
+                    }
                 }
             ]
         }

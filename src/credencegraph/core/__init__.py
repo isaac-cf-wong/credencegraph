@@ -7,6 +7,7 @@ from credencegraph.core.credence import Beta, Credence, Point, as_credence, pars
 from credencegraph.core.errors import CredenceGraphError, CycleError, ValidationError
 from credencegraph.core.graph import Graph
 from credencegraph.core.node import Node
+from credencegraph.core.obligation import DISCHARGE_KINDS, Discharge, Obligation
 from credencegraph.core.relation import (
     ACYCLIC_TYPES,
     INFERENTIAL_TYPES,
@@ -28,6 +29,7 @@ from credencegraph.core.serialization import (
 
 __all__ = [
     "ACYCLIC_TYPES",
+    "DISCHARGE_KINDS",
     "FORMAT",
     "INFERENTIAL_TYPES",
     "STRENGTH_TYPES",
@@ -36,8 +38,10 @@ __all__ = [
     "Credence",
     "CredenceGraphError",
     "CycleError",
+    "Discharge",
     "Graph",
     "Node",
+    "Obligation",
     "Point",
     "Relation",
     "SourceAnchor",

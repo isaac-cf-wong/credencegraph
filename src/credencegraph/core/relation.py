@@ -9,6 +9,7 @@ from credencegraph.core.anchor import require_text
 from credencegraph.core.attributes import FrozenJSON, freeze_attributes
 from credencegraph.core.credence import Credence, as_credence
 from credencegraph.core.errors import ValidationError
+from credencegraph.core.obligation import Obligation
 
 REQUIRES = "requires"
 SUPPORTS = "supports"
@@ -44,7 +45,8 @@ class Relation:
 
     ``strength`` is required for ``requires``, ``supports`` and ``refutes``, and forbidden for
     every other type, including ``equivalent``, ``exclusive`` and all annotations. A bare float is read
-    as a ``Point``. ``equivalent`` and ``exclusive`` relations may not join a node to itself.
+    as a ``Point``. ``equivalent`` and ``exclusive`` relations may not join a node to itself. Only an
+    inferential relation may carry an ``obligation``.
 
     Attributes:
         id: Stable identifier, unique within the graph.
@@ -54,6 +56,7 @@ class Relation:
         strength: The relation's strength, per the rules above.
         attributes: Open JSON metadata, stored read-only: objects as read-only mappings, arrays as
             tuples.
+        obligation: What must be true for the step to hold, and how it was met.
     """
 
     id: str
@@ -62,6 +65,7 @@ class Relation:
     target: str
     strength: Credence | None = None
     attributes: Mapping[str, FrozenJSON] = field(default_factory=dict)
+    obligation: Obligation | None = None
 
     def __post_init__(self) -> None:
         """Validate the fields and enforce the strength rules."""
@@ -82,6 +86,13 @@ class Relation:
             msg = f"Relation {self.id!r} of type {self.type!r} joins node {self.source!r} to itself"
             raise ValidationError(msg)
         object.__setattr__(self, "attributes", freeze_attributes(self.attributes, f"Relation {self.id!r} attributes"))
+        if self.obligation is not None:
+            if not isinstance(self.obligation, Obligation):
+                msg = f"Relation {self.id!r} obligation must be an Obligation, got {self.obligation!r}"
+                raise ValidationError(msg)
+            if not is_inferential(self.type):
+                msg = f"Relation {self.id!r} of type {self.type!r} is an annotation; it must not have an obligation"
+                raise ValidationError(msg)
 
     @property
     def is_inferential(self) -> bool:

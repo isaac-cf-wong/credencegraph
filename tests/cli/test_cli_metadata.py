@@ -8,6 +8,7 @@ import typer.main
 from credencegraph.cli.main import app
 from credencegraph.core.node import DEFAULT_KIND
 from credencegraph.diagnostics import DEFAULT_CLAIM_THRESHOLD, DEFAULT_FAILURE_THRESHOLD, DEFAULT_MIN_SUPPORTS
+from credencegraph.diagnostics.obligations import DEFAULT_TIMEOUT
 from credencegraph.inference import DEFAULT_DRAWS, DEFAULT_MAX_FACTOR_SIZE
 
 COMMANDS = (
@@ -22,6 +23,8 @@ COMMANDS = (
     "coverage",
     "split",
     "annotate",
+    "verify",
+    "sorries",
 )
 
 
@@ -84,6 +87,8 @@ def test_graph_path_is_the_first_argument(group, name):
         ("coverage", ["path"]),
         ("split", ["path", "node"]),
         ("annotate", ["path", "node"]),
+        ("verify", ["path"]),
+        ("sorries", ["path"]),
         ("version", []),
     ],
 )
@@ -130,6 +135,8 @@ def test_positional_arguments(group, name, arguments):
         ("annotate", "rests_on", ["--rests-on"], (False, True)),
         ("annotate", "verdict", ["--verdict"], (False, False)),
         ("annotate", "not_assessed", ["--not-assessed"], (False, False)),
+        ("verify", "timeout", ["--timeout"], (False, False)),
+        ("sorries", "target", ["--target"], (True, False)),
     ],
 )
 def test_options(group, name, option, opts, flags):
@@ -156,3 +163,4 @@ def test_defaults_are_the_library_defaults(group):
     assert params(group.commands["diagnose"])["failure_threshold"].default == DEFAULT_FAILURE_THRESHOLD
     assert params(group.commands["diagnose"])["min_supports"].default == DEFAULT_MIN_SUPPORTS
     assert params(group.commands["diagnose"])["max_factor_size"].default == DEFAULT_MAX_FACTOR_SIZE
+    assert params(group.commands["verify"])["timeout"].default == DEFAULT_TIMEOUT

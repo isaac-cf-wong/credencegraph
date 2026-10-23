@@ -15,7 +15,7 @@ from unittest import mock
 import pytest
 
 from credencegraph.cli import common
-from credencegraph.core import Graph, Node, Relation, dump
+from credencegraph.core import Discharge, Graph, Node, Obligation, Relation, dump
 from credencegraph.inference import InferenceError, ProblemTooLargeError
 
 DOCS = Path(__file__).parents[2] / "docs" / "cli.md"
@@ -100,6 +100,20 @@ def example(tmp_path: Path) -> Path:
     )
 
 
+def failing_discharge(tmp_path: Path) -> Path:
+    """A step discharged by a script that has never been run and fails when it is."""
+    (tmp_path / "check.py").write_bytes(b"raise SystemExit(1)\n")
+    obligation = Obligation(
+        "the bias is below 1%", Discharge("numerical", script="check.py", value=0.0, tolerance=0.01)
+    )
+    return write(
+        tmp_path / "g.json",
+        Node("premise", base=0.5),
+        Node("claim", base=0.1),
+        relations=(Relation("r", "supports", "premise", "claim", strength=0.8, obligation=obligation),),
+    )
+
+
 def untyped(tmp_path: Path) -> Path:
     """A chunk of a document that has no type yet."""
     return write(tmp_path / "g.json", Node("s-1", kind="unassigned", attributes={"origin": "document"}))
@@ -128,6 +142,7 @@ FAILURES = {
     "problem-too-large": ("query", too_large, ("marginal", "child", "--draws", "0")),
     "invalid-rubric": ("annotate", untyped, ("s-1", "--rubric", bad_rubric, "--type", "result")),
     "rubric-violation": ("check", untyped, ("--rubric", RUBRIC)),
+    "verification-failed": ("verify", failing_discharge, ()),
     "missing-extra": ("ingest", lambda tmp: _text(tmp, "Text.", "doc.tex"), (lambda tmp: tmp / "g.json",)),
 }
 
@@ -198,7 +213,7 @@ def test_problem_too_large_hint_names_a_next_step(cli, tmp_path):
 
 
 def test_every_command_is_covered():
-    """Test that the failure table exercises the commands; ``coverage`` and ``split`` fail in their own tests."""
+    """Test that the failure table exercises the commands; ``coverage``, ``split`` and ``sorries`` fail in their own tests."""
     assert {entry[0] for entry in FAILURES.values()} == {
         "init",
         "ingest",
@@ -208,6 +223,7 @@ def test_every_command_is_covered():
         "diagnose",
         "check",
         "annotate",
+        "verify",
     }
 
 
