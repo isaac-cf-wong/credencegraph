@@ -216,7 +216,9 @@ as something another node rests on, restricts nothing there. A node with no
 `scope` field, which includes every analyst and evidence node, declares no
 scope. What a node rests on covers, on a parameter, the intersection of the
 scopes they declare there; when those scopes do not overlap, the intersection is
-empty and covers nothing.
+empty and covers nothing. A node whose own `scope` fields do not overlap on a
+parameter declares an empty scope there, which claims no value and so lies within
+any domain and anything it rests on.
 
 **Units.** A `quantity` unit is read as SI symbols, each with an optional SI
 prefix and integer power, joined by `*`, `·`, `⋅`, `×` or a space, with `/`

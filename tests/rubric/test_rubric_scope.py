@@ -48,10 +48,12 @@ def test_is_empty(interval, empty):
         (UNBOUNDED, UNBOUNDED, True),
         ((10, 100), UNBOUNDED, False),
         ((30, 20), (25, 25), False),
+        ((0, 5), (20, 10), True),
+        ((30, 20), (20, 10), True),
     ],
 )
 def test_contains(outer, inner, inside):
-    """Test containment: bounded ends are included, an open end fits only in an open end, and empty holds nothing."""
+    """Test containment: ends are included, an open end fits only an open end, empty holds nothing and fits anywhere."""
     assert contains(outer, inner) is inside
 
 
