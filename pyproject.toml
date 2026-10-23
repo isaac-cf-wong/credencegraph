@@ -32,6 +32,7 @@ dev = [
   "jsonschema>=4.26.0",
   "hypothesis>=6.170.5",
   "pylatexenc>=2.11",
+  "pypdfium2>=5.14.0",
 ]
 docs = ["zensical>=0.0.71", "mkdocstrings-python>=2.0.10"]
 build = ["hatch>=1.18.1"]
@@ -48,8 +49,8 @@ Home = "https://github.com/isaac-cf-wong/credencegraph"
 "Release Notes" = "https://github.com/isaac-cf-wong/credencegraph/releases"
 
 [project.optional-dependencies]
-# The LaTeX reader of `credencegraph ingest`; the core never imports it.
-ingest = ["pylatexenc>=2.10"]
+# The LaTeX and PDF readers of `credencegraph ingest`; the core never imports them.
+ingest = ["pylatexenc>=2.10", "pypdfium2>=5.14"]
 
 [tool.dependency-support-policy]
 # Rolling support floors (SPEC 0): runtime lower bounds are raised on a schedule

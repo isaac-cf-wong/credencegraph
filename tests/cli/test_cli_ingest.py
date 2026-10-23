@@ -1,14 +1,16 @@
-"""The ``ingest`` command, on the invented paper under ``tests/fixtures/latex``."""
+"""The ``ingest`` command, on the invented papers under ``tests/fixtures/latex`` and ``tests/fixtures/dummy-paper``."""
 
 from __future__ import annotations
 
 import sys
 from pathlib import Path
+from unittest import mock
 
 from credencegraph.core import load
 
 ROOT = Path(__file__).parents[2]
 PAPER = ROOT / "tests" / "fixtures" / "latex" / "paper" / "main.tex"
+PDF = ROOT / "tests" / "fixtures" / "dummy-paper" / "dummy-paper.pdf"
 RUBRIC = ROOT / "docs" / "examples" / "methods-paper.toml"
 
 
@@ -20,6 +22,7 @@ def test_ingest_then_check(cli, tmp_path):
         "command": "ingest",
         "path": str(graph_path),
         "source": str(PAPER),
+        "format": "latex",
         "nodes": 13,
         "relations": 4,
         "units": {"sentence": 7, "equation": 2, "caption": 1, "footnote": 1, "reference": 2},
@@ -64,9 +67,9 @@ def test_ingest_refuses_to_overwrite(cli, tmp_path):
 
 
 def test_ingest_failures(cli, tmp_path):
-    """Test a source that is not LaTeX, a missing source, a missing input file and an input loop."""
+    """Test a source of unknown format, a missing source, a missing input file and an input loop."""
     graph_path = tmp_path / "g.json"
-    assert cli.error("ingest", tmp_path / "paper.pdf", graph_path)["code"] == "invalid-argument"
+    assert cli.error("ingest", tmp_path / "paper.docx", graph_path)["code"] == "invalid-argument"
     assert cli.error("ingest", tmp_path / "absent.tex", graph_path)["code"] == "file-not-found"
     source = tmp_path / "doc.tex"
     source.write_text("Text. \\input{absent}\n", encoding="utf-8")
@@ -84,3 +87,42 @@ def test_ingest_without_the_extra(cli, tmp_path, monkeypatch):
     error = cli.error("ingest", PAPER, tmp_path / "g.json")
     assert error["code"] == "missing-extra"
     assert "credencegraph[ingest]" in error["hint"]
+
+
+def test_ingest_pdf(cli, tmp_path):
+    """Test that ``ingest`` reads a PDF by its extension into a graph that passes ``anchored``."""
+    graph_path = tmp_path / "paper.json"
+    output = cli.json("ingest", PDF, graph_path, "--document", "dummy-paper")
+    assert output == {
+        "command": "ingest",
+        "path": str(graph_path),
+        "source": str(PDF),
+        "format": "pdf",
+        "nodes": 29,
+        "relations": 6,
+        "units": {"sentence": 19, "equation": 5, "caption": 2, "footnote": 0, "reference": 3},
+        "unresolved_citations": [],
+    }
+    graph = load(graph_path)
+    assert graph.nodes["s-04"].sources[0].locator.startswith("page=1;bbox=")
+    assert cli.json("check", graph_path, "--rubric", RUBRIC, "--level", "anchored")["violations"] == []
+
+
+def test_ingest_format_option(cli, tmp_path):
+    """Test that ``--format`` reads a file whose extension names no format, and overrides one that does."""
+    source = tmp_path / "paper.bin"
+    source.write_bytes(PDF.read_bytes())
+    assert cli.json("ingest", source, tmp_path / "a.json", "--format", "pdf")["nodes"] == 29
+    assert cli.error("ingest", source, tmp_path / "b.json")["code"] == "invalid-argument"
+    error = cli.error("ingest", PAPER, tmp_path / "c.json", "--format", "pdf")
+    assert error["code"] == "invalid-argument"
+    assert "PDFium cannot open it" in error["message"]
+
+
+def test_ingest_pdf_failures(cli, tmp_path):
+    """Test a missing PDF, and a PDF reader whose dependencies are missing."""
+    assert cli.error("ingest", tmp_path / "absent.pdf", tmp_path / "g.json")["code"] == "file-not-found"
+    with mock.patch.dict(sys.modules, {"credencegraph.ingest.pdf": None}):
+        error = cli.error("ingest", PDF, tmp_path / "g.json")
+    assert error["code"] == "missing-extra"
+    assert error["message"].startswith("ingesting PDF needs")

@@ -2,11 +2,12 @@
 
 A reader turns a document into ``Chunk`` objects in document order; ``chunks_to_graph`` numbers
 them, anchors each verbatim and links each citation to the bibliography entry it names. The result
-passes ``check --level anchored``.
+passes ``check --level anchored``. ``ends_sentence`` is the sentence-boundary rule the readers share.
 """
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 
@@ -25,20 +26,47 @@ FOOTNOTE = "footnote"
 REFERENCE = "reference"
 UNITS = (SENTENCE, EQUATION, CAPTION, FOOTNOTE, REFERENCE)
 
+# A word after which a full stop does not end a sentence: a common abbreviation or an initial.
+_ABBREVIATIONS = frozenset(
+    {
+        "e.g",
+        "i.e",
+        "al",
+        "cf",
+        "vs",
+        "fig",
+        "figs",
+        "eq",
+        "eqs",
+        "ref",
+        "refs",
+        "sec",
+        "secs",
+        "dr",
+        "mr",
+        "mrs",
+        "ms",
+        "prof",
+    }
+)
+_INITIAL = re.compile(r"[A-Z]")
+# Words after which a single capital is a numbered label, as in "Table I.", not an initial.
+_LABELLED = frozenset({"table", "tab", "section", "sec", "appendix", "app", "chapter", "part"})
+
 # The id prefix of each unit. Sentences, footnotes and captions share one numbering.
 _PREFIXES = {SENTENCE: "s", FOOTNOTE: "s", CAPTION: "s", EQUATION: "e", REFERENCE: "r"}
 
 
 @dataclass(frozen=True, slots=True)
 class Chunk:
-    """A chunk of a document, as a reader found it.
+    r"""A chunk of a document, as a reader found it.
 
     Attributes:
         unit: One of ``UNITS``.
         text: The chunk's text, normalised with ``normalise_text``.
         locator: Where it is, such as ``file=sec/method.tex;lines=41-42``.
         cites: The bibliography keys the chunk cites, in order of first citation.
-        labels: An equation's labels, in order.
+        labels: An equation's labels, in order: its ``\label`` values in LaTeX, its printed numbers in a PDF.
         key: A bibliography entry's key.
     """
 
@@ -48,6 +76,30 @@ class Chunk:
     cites: tuple[str, ...] = ()
     labels: tuple[str, ...] = ()
     key: str | None = None
+
+
+def ends_sentence(before: str, after: str) -> bool:
+    """Tell whether a full stop, question mark or exclamation mark followed by whitespace ends a sentence.
+
+    It does unless the word before it is a common abbreviation or an initial, or the text after it
+    starts in lower case. A single capital after a word such as "Table" or "Sec." is a label, as in
+    "Table I.", and ends the sentence.
+
+    Args:
+        before: The text up to the punctuation.
+        after: The text after the punctuation and the whitespace that follows it.
+
+    Returns:
+        Whether the sentence ends there.
+    """
+    words = before.split()
+    if words:
+        stem = words[-1].lstrip("(\"'`~")
+        if stem.lower() in _ABBREVIATIONS:
+            return False
+        if _INITIAL.fullmatch(stem) and not (len(words) > 1 and words[-2].rstrip(".").lower() in _LABELLED):
+            return False
+    return not (after and after[0].islower())
 
 
 def _ids(chunks: list[Chunk]) -> list[str]:
