@@ -613,3 +613,20 @@ def test_unit_mismatch_is_only_between_fields_of_one_name_on_connected_nodes():
     (finding,) = check_graph(build(upper, lower, Relation("r", "requires", "s-3", "s-1", strength=0.9)), RUBRIC)
     assert finding.relations == ("r",)
     assert "'value' is in 'Hz' here but in 's' on 's-3'" in finding.message
+
+
+@pytest.mark.parametrize(
+    ("second", "expected"),
+    [([20, 30], []), ([5, 30], ["out-of-domain:s-2", "scope-exceeds-support:s-2"])],
+)
+def test_an_empty_scope_lies_within_everything(second, expected):
+    """Test that two disjoint scope fields leave an empty scope, which no domain or support excludes."""
+    rubric = loads_rubric(
+        '[rubric]\nformat = 1\nname = "r"\nversion = "1"\n[parameters.ratio]\nunit = "1"\ndomain = [0, 5]\n'
+        '[types.method]\nform.scope = { type = "scope" }\nform.range = { type = "scope" }\n'
+    )
+    test = chunk("s-1", FILTER_TEST, "method", attributes={"origin": "document", "form": {"scope": {"ratio": [0, 5]}}})
+    form = {"scope": {"ratio": [0, 10]}, "range": {"ratio": second}}
+    claim = chunk("s-2", FILTER_CLAIM, "method", attributes={"origin": "document", "form": form})
+    rests = Relation("r", "requires", "s-1", "s-2", strength=0.9)
+    assert sorted(finding.id for finding in check_graph(build(test, claim, rests), rubric)) == expected

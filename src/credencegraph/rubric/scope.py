@@ -41,16 +41,19 @@ def is_empty(interval: Interval) -> bool:
 
 
 def contains(outer: Interval, inner: Interval) -> bool:
-    """Tell whether every value of a non-empty interval lies in another.
+    """Tell whether every value of one interval lies in another.
 
     Args:
         outer: The interval that should hold the other.
-        inner: A non-empty interval.
+        inner: The interval that should lie in it.
 
     Returns:
-        Whether ``inner`` lies in ``outer``. An empty ``outer`` holds nothing, and an open end of
-        ``inner`` lies only within an open end of ``outer``.
+        Whether ``inner`` lies in ``outer``. An empty ``inner`` has no value to lie outside, so it
+        lies in every interval; an empty ``outer`` holds nothing else, and an open end of ``inner``
+        lies only within an open end of ``outer``.
     """
+    if is_empty(inner):
+        return True
     if is_empty(outer):
         return False
     low_ok = outer[0] is None or (inner[0] is not None and inner[0] >= outer[0])
