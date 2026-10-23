@@ -3,15 +3,20 @@
 % so none of them resolves to anything. Rebuild dummy-paper.pdf with `make` in this directory.
 \pdftrailerid{}
 \pdfsuppressptexinfo=-1
-\documentclass[aps,prd,twocolumn,nofootinbib,superscriptaddress]{revtex4-2}
+\documentclass[aps,prd,twocolumn,nofootinbib]{revtex4-2}
 \usepackage{amsmath}
+% The fixture is kept small by embedding few font subsets: pict2e draws the figure's slanted line
+% as a path instead of with the line font, the abstract, captions and bibliography are set at the
+% body size, and the affiliation is upright.
+\usepackage{pict2e}
+\let\small\normalsize
 
 \begin{document}
 
 \title{A Toy Smoothing Filter for Invented Tide Records}
 
 \author{Odile Varenne}
-\affiliation{Department of Imaginary Measurements, Nowhere Institute, Elsewhere}
+\affiliation{\upshape Department of Imaginary Measurements, Nowhere Institute, Elsewhere}
 
 \begin{abstract}
 We describe a toy smoothing filter for invented tide records. The filter suppresses short spikes
@@ -43,10 +48,10 @@ so the relative bias $\beta / (b w)$ tends to $1/2$ and the absolute bias grows 
 \begin{figure}[t]
   \centering
   \setlength{\unitlength}{1mm}
-  \begin{picture}(60,30)
+  \begin{picture}(60,15)
     \put(0,0){\line(1,0){60}}
-    \put(0,0){\line(0,1){30}}
-    \put(0,5){\line(2,1){50}}
+    \put(0,0){\line(0,1){15}}
+    \put(0,3){\line(4,1){48}}
   \end{picture}
   \caption{The smoothed record against the step $k$ for a window $w = 8$.}
   \label{fig:record}

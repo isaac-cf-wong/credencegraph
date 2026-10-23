@@ -124,6 +124,14 @@ def test_sentences_are_found_verbatim(paper):
     assert [chunk.text for chunk in paper.chunks if chunk.unit == "sentence"] == SENTENCES
 
 
+def test_words_hyphenated_at_line_ends(paper):
+    """Test that the layout breaks words across lines, and that each one is read whole."""
+    broken = [line.text.split()[-1] for line in paper.lines if line.glyphs and line.glyphs[-1].hyphen]
+    assert broken == ["measure-", "Fig-", "fil-"]
+    text = " ".join(chunk.text for chunk in paper.chunks)
+    assert all(word in text for word in ("measurement", "Figure 1", "filter,"))
+
+
 def test_chunk_order(paper):
     """Test the order of the chunks: a display ends the sentence before it; a float's chunks follow the sentence it splits."""
     units = "".join(chunk.unit[0] for chunk in paper.chunks)
