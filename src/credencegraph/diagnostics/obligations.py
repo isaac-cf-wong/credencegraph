@@ -92,6 +92,9 @@ def _exits_nonzero(call: ast.Call) -> bool:
 def _constant(test: ast.expr) -> bool | None:
     """Return the truth of a condition fixed in the source, such as ``False``, ``0`` or ``not True``.
 
+    A literal, the ``not`` of a constant condition, and a conditional expression whose condition and
+    taken branch are both constant, such as ``False if True else x``, are constant at any depth.
+
     Returns:
         ``True`` or ``False`` for a constant condition, ``None`` for one only a run can decide.
     """
@@ -100,6 +103,9 @@ def _constant(test: ast.expr) -> bool | None:
     if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
         inner = _constant(test.operand)
         return None if inner is None else not inner
+    if isinstance(test, ast.IfExp):
+        taken = _constant(test.test)
+        return None if taken is None else _constant(test.body if taken else test.orelse)
     return None
 
 
@@ -154,11 +160,12 @@ def can_fail(source: str) -> bool:
     Code that a constant condition makes unreachable is ignored first: the body of ``if False:``,
     ``if 0:`` or ``while False:``, the ``else`` of ``if True:``, the dead branch of a conditional
     expression, and an ``assert`` of a constantly true condition such as ``assert True``. A condition
-    counts as constant only when it is a literal or the ``not`` of one, at any depth of nesting; a
-    check behind any other condition is taken to be reachable, including one behind a conditional
-    expression that is itself constant, such as ``if (False if True else False):``, and an assert of
-    one, such as ``assert (True if True else False)``. A script that does not parse has no checked failure path,
-    only a crash, and counts as unable to fail.
+    counts as constant when it is a literal, the ``not`` of a constant condition, or a conditional
+    expression whose condition and taken branch are constant, at any depth of nesting, so
+    ``if (False if True else False):`` is pruned like ``if False:`` and
+    ``assert (True if True else False)`` cannot fail; a check behind any other condition is taken to be
+    reachable. A script that does not parse has no checked failure path, only a crash, and counts as
+    unable to fail.
 
     Args:
         source: The script's text.

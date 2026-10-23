@@ -109,6 +109,12 @@ class TestCanFail:
             "if True:\n    if False: assert False\n    else: assert x < 1",
             "if not False:\n    if not False:\n        assert x < 1",
             "if True:\n    while False:\n        pass\n    else:\n        raise ValueError",
+            "if (x if True else False):\n    assert x",
+            "if (False if x else True):\n    assert x",
+            "if (x if False else True):\n    raise ValueError",
+            "assert (x if True else True)",
+            "assert (True if x else True)",
+            "if (False if False else True):\n    assert x",
         ],
     )
     def test_failure_paths(self, source):
@@ -140,6 +146,14 @@ class TestCanFail:
             "print('ok')\nif False:\n    if x:\n        raise ValueError",
             "if True:\n    if False:\n        assert False",
             "if True:\n    if True:\n        pass\n    else:\n        raise ValueError",
+            "if (False if True else False):\n    assert False",
+            "if (True if False else 0):\n    raise ValueError",
+            "if not (True if True else x):\n    assert x",
+            "if ((False if True else x) if True else x):\n    assert x",
+            "if (True if True else x):\n    pass\nelse:\n    raise ValueError",
+            "while (False if True else x):\n    assert x",
+            "assert (True if True else False)",
+            "assert (1 if not False else x)",
         ],
     )
     def test_no_failure_path(self, source):
