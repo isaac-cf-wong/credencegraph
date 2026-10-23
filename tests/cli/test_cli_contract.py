@@ -102,7 +102,7 @@ def example(tmp_path: Path) -> Path:
 
 def failing_discharge(tmp_path: Path) -> Path:
     """A step discharged by a script that has never been run and fails when it is."""
-    (tmp_path / "check.py").write_text("raise SystemExit(1)\n", encoding="utf-8")
+    (tmp_path / "check.py").write_bytes(b"raise SystemExit(1)\n")
     obligation = Obligation(
         "the bias is below 1%", Discharge("numerical", script="check.py", value=0.0, tolerance=0.01)
     )

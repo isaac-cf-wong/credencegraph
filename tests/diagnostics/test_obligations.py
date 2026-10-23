@@ -45,7 +45,7 @@ LAX = "bias = {bias}\nassert isinstance(bias, float)\nprint(bias)\n"
 
 def script(directory: Path, name: str, text: str) -> str:
     """Write a script and return its name."""
-    (directory / name).write_text(text, encoding="utf-8")
+    (directory / name).write_bytes(text.encode("utf-8"))
     return name
 
 
@@ -166,7 +166,7 @@ class TestVerifyScripts:
         (tmp_path / "sub").mkdir()
         (tmp_path / "sub" / "data.txt").write_text("1\n", encoding="utf-8")
         text = "from pathlib import Path\nassert Path('data.txt').read_text() == '1\\n'\n"
-        (tmp_path / "sub" / "ok.py").write_text(text, encoding="utf-8")
+        (tmp_path / "sub" / "ok.py").write_bytes(text.encode("utf-8"))
         discharge = Discharge("symbolic", script="sub/ok.py", digest=file_digest(text.encode()), status=0)
         (check,) = verify(single(discharge), tmp_path)
         assert check.outcome == PASSED

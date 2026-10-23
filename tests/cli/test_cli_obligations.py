@@ -27,7 +27,7 @@ def write(directory: Path, *relations: Relation) -> Path:
 
 def checked(directory: Path, text: str = PASSES, status: int = 0) -> Relation:
     """A support discharged by ``check.py``, holding ``text``, whose recorded run exited with ``status``."""
-    (directory / "check.py").write_text(text, encoding="utf-8")
+    (directory / "check.py").write_bytes(text.encode("utf-8"))
     discharge = Discharge("symbolic", script="check.py", digest=file_digest(text.encode()), status=status)
     return Relation("r", "supports", "premise", "claim", strength=0.8, obligation=Obligation("holds", discharge))
 
@@ -138,7 +138,7 @@ class TestSorries:
 def test_verify_holds_a_numerical_result_to_its_tolerance(cli, tmp_path):
     """Test that a numerical script that exits 0 but prints a result outside its band fails verify."""
     text = "bias = 0.05\nassert isinstance(bias, float)\nprint(bias)\n"
-    (tmp_path / "bias.py").write_text(text, encoding="utf-8")
+    (tmp_path / "bias.py").write_bytes(text.encode("utf-8"))
     discharge = Discharge(
         "numerical", script="bias.py", digest=file_digest(text.encode()), status=0, value=0.0, tolerance=0.01
     )
