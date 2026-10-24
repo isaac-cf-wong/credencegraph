@@ -278,6 +278,10 @@ def test_hedges_are_compared_after_normalisation_and_case_folding():
         ),
         ({"checks": {"rerun": {**CHECK, "targets": []}}}, "checks.rerun.targets must be a non-empty array"),
         ({"premises": {**PREMISES, "for": ["finding"]}}, "premises.for names 'finding', which is not a declared type"),
+        (
+            {"checks": {"rerun": CHECK}, "premises": {**PREMISES, "for": ["rerun"]}},
+            "premises.for names 'rerun', which is not a declared type",
+        ),
         # Unknown and missing keys.
         ({"checks": {"rerun": {**CHECK, "model": []}}}, "checks.rerun has unknown keys \\['model'\\]"),
         ({"checks": {"rerun": {k: v for k, v in CHECK.items() if k != "models"}}}, "missing \\['models'\\]"),
