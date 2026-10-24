@@ -15,7 +15,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-from credencegraph.core.credence import Credence, as_credence, parse_credence
+from credencegraph.core.credence import Credence, Point, as_credence, parse_credence
 from credencegraph.core.errors import CredenceGraphError, ValidationError
 from credencegraph.core.relation import REQUIRES, SUPPORTS
 from credencegraph.rubric.text import normalise_text
@@ -165,6 +165,17 @@ class Check:
     false_pass: Credence
     models: tuple[str, ...]
     description: str = ""
+
+    @property
+    def edge_strength(self) -> Point:
+        """The strength of the ``supports`` relation from a checked node to the check's evidence node.
+
+        With the evidence node's base set to ``false_pass``, a pass then has probability
+        ``E[false_pass]`` when the target is false and ``E[sensitivity]`` when it is true:
+        ``1 - (1 - E[sensitivity]) / (1 - E[false_pass])``, positive because the mean of
+        ``sensitivity`` exceeds that of ``false_pass``.
+        """
+        return Point(1 - (1 - self.sensitivity.mean) / (1 - self.false_pass.mean))
 
 
 @dataclass(frozen=True, slots=True)

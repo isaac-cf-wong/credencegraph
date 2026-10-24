@@ -297,6 +297,14 @@ def check_command(
             show_default=False,
         ),
     ] = None,
+    rubric_credences: Annotated[
+        bool,
+        typer.Option(
+            "--rubric-credences",
+            help="With --rubric: also require every base and strength to be the rubric's, so that only an "
+            "observed check can raise a credence.",
+        ),
+    ] = False,
     as_json: JsonOption = False,
 ) -> None:
     """Check that a graph file is valid and can be compiled for inference, or that it meets a rubric.
@@ -310,13 +318,19 @@ def check_command(
 
     With --rubric, the graph is checked against the rubric at --level instead, and every violation
     is reported as a rubric-violation. The graph is compiled only at the assessed level.
+    --rubric-credences adds the rules that every base and strength is the rubric's, that document and
+    analyst nodes are joined only by requires and by check edges, and that observations sit only on
+    check nodes and agree with their results.
     """
 
     def action() -> Result:
-        if level is not None and rubric is None:
-            raise CliError(INVALID_ARGUMENT, "--level needs --rubric", "pass --rubric with the rubric to check against")
+        for given, option in ((level is not None, "--level"), (rubric_credences, "--rubric-credences")):
+            if given and rubric is None:
+                raise CliError(
+                    INVALID_ARGUMENT, f"{option} needs --rubric", "pass --rubric with the rubric to check against"
+                )
         if rubric is not None:
-            return _rubric_check(path, rubric, level or TYPED)
+            return _rubric_check(path, rubric, level or TYPED, rubric_credences)
         graph = read_graph(path)
         warnings = unanchored(graph)
         counts = {"path": str(path), "nodes": len(graph.nodes), "relations": len(graph.relations)}
@@ -334,16 +348,18 @@ def check_command(
     respond("check", as_json, action)
 
 
-def _rubric_check(path: Path, rubric_path: Path, level: str) -> Result:
+def _rubric_check(path: Path, rubric_path: Path, level: str, rubric_credences: bool) -> Result:
     """Check a graph file against a rubric at a level.
 
     Args:
         path: The graph file.
         rubric_path: The rubric file.
         level: The validation level.
+        rubric_credences: Whether to add the rules that every base and strength is the rubric's.
 
     Returns:
-        ``{"path", "rubric", "level", "nodes", "relations", "violations"}``, with no violations.
+        ``{"path", "rubric", "level", "nodes", "relations", "violations"}``, with no violations, and
+        ``"rubric_credences": true`` after ``"level"`` when those rules were added.
 
     Raises:
         CliError: A ``rubric-violation`` listing every violation in ``details.violations``, with the
@@ -358,17 +374,19 @@ def _rubric_check(path: Path, rubric_path: Path, level: str) -> Result:
         )
     graph = read_graph(path)
     rubric = read_rubric(rubric_path)
-    violations = check_graph(graph, rubric, level)
+    violations = check_graph(graph, rubric, level, rubric_credences=rubric_credences)
     payload = {
         "path": str(path),
         "rubric": rubric.identity(),
         "level": level,
+        **({"rubric_credences": True} if rubric_credences else {}),
         "nodes": len(graph.nodes),
         "relations": len(graph.relations),
         "violations": [finding.to_dict() for finding in violations],
     }
     if not violations:
-        return Result(payload, [f"{path}: ok at level {level} against rubric {rubric.name} {rubric.version}"])
+        rules = " with rubric credences" if rubric_credences else ""
+        return Result(payload, [f"{path}: ok at level {level}{rules} against rubric {rubric.name} {rubric.version}"])
     if any(finding.diagnostic == COMPILE_ERROR for finding in violations):
         try:
             compile_graph(graph)
@@ -377,7 +395,8 @@ def _rubric_check(path: Path, rubric_path: Path, level: str) -> Result:
     listed = "; ".join(f"{finding.diagnostic}: {finding.message}" for finding in violations)
     raise CliError(
         RUBRIC_VIOLATION,
-        f"{len(violations)} violation(s) of rubric {rubric.name!r} at level {level}: {listed}",
+        f"{len(violations)} violation(s) of rubric {rubric.name!r} at level {level}"
+        f"{' with rubric credences' if rubric_credences else ''}: {listed}",
         "each violation names its node and rule; fix them, or check at a lower --level",
         payload,
     )

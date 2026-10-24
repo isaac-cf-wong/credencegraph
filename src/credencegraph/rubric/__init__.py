@@ -24,10 +24,11 @@ from credencegraph.rubric.model import (
     rubric_from_dict,
 )
 from credencegraph.rubric.text import normalise_text, text_digest
-from credencegraph.rubric.validate import LEVELS, VIOLATION_CODES, check_graph, coverage
+from credencegraph.rubric.validate import LEVELS, RUBRIC_CREDENCE_CODES, VIOLATION_CODES, check_graph, coverage
 
 __all__ = [
     "LEVELS",
+    "RUBRIC_CREDENCE_CODES",
     "VIOLATION_CODES",
     "Calibration",
     "Check",

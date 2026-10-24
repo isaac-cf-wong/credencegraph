@@ -558,6 +558,44 @@ Without `--rubric` and `--level`, `check` behaves exactly as it does today. With
 is an `invalid-argument`. At `anchored` and `typed` the graph is not compiled,
 because an unassessed graph has no bases yet.
 
+**`--rubric-credences`** — opt-in rules, added to any level, for a graph whose
+credences come from the rubric alone: every `base` and `strength` is a rubric
+value, and the only thing that can raise a credence above its node's base is an
+observed check. They read the rubric's format-2 tables. A hand-built graph is
+unaffected unless the flag is passed.
+
+A **check node** is an evidence node whose type is a check type of the rubric
+and that carries a check record, an object, in `attributes.check`; the record's
+`result` is `passed`, `failed` or `error`. A **check edge** is a `supports`
+relation from a document or analyst node to a check node: the check was run on
+that node. The check node's `base` is its type's `false_pass` and the check
+edge's strength is `1 - (1 - E[sensitivity]) / (1 - E[false_pass])`, so a pass
+has probability `E[false_pass]` when the checked node is false and
+`E[sensitivity]` when it is true.
+
+- `credence-not-rubric`: A document or analyst node has a `base` other than its
+  type's, or an analyst node one other than `premises.base` when the rubric has
+  `[premises]`; a `requires` between document or analyst nodes has a strength
+  other than `premises.strength` from an analyst node (when the rubric has
+  `[premises]`), or else its target type's edge-rule strength (an edge rule of
+  `supports`, or none, gives no strength to match); a check node has a `base`
+  other than its type's `false_pass`; or a check edge has a strength other than
+  the one above. A node without a `base` is not reported here.
+- `relation-not-allowed`: An inferential relation touching a document, analyst
+  or check node that is neither a `requires` from a document or analyst node to
+  another, nor a check edge. This covers `supports` and `refutes` between
+  document or analyst nodes, any `equivalent` or `exclusive` touching one, any
+  relation from an evidence node to one, and any relation out of a check node.
+- `check-unobserved-invalid`: `attributes.observed` is on a node that is not a
+  check node; or a check node's `attributes.observed` disagrees with its result:
+  it must be `true` for `passed`, `false` for `failed`, and absent for `error`;
+  or the result is none of these.
+
+With only `requires` parents, a node's probability is its base times factors of
+at most 1, and a check node is a child that changes nothing until it is
+observed. So on a graph that passes these rules, before anything is observed, no
+document or analyst node has a point credence above the mean of its base.
+
 ## Coverage
 
 `coverage GRAPH --rubric RUBRIC` reports how far the classification has got. It

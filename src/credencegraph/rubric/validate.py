@@ -13,9 +13,10 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
+from credencegraph.core.credence import Credence, format_credence
 from credencegraph.core.graph import Graph
 from credencegraph.core.node import Node
-from credencegraph.core.relation import REQUIRES, Relation
+from credencegraph.core.relation import REQUIRES, SUPPORTS, Relation
 from credencegraph.diagnostics.records import Finding
 from credencegraph.diagnostics.structure import missing_parameters
 from credencegraph.rubric.faithfulness import unfaithful
@@ -34,6 +35,7 @@ from credencegraph.rubric.model import (
     SCOPE,
     UNASSIGNED,
     VERBATIM,
+    Check,
     FormField,
     Rubric,
 )
@@ -113,6 +115,19 @@ VIOLATION_CODES = {
     ),
     ASSESSED: (UNASSESSED, NO_EVIDENCE, MISSING_REASON, COMPILE_ERROR),
 }
+
+# The opt-in rules of ``rubric_credences``: every base and strength is the rubric's, and only an observed check
+# can raise a credence above its node's base.
+CREDENCE_NOT_RUBRIC = "credence-not-rubric"
+RELATION_NOT_ALLOWED = "relation-not-allowed"
+CHECK_UNOBSERVED_INVALID = "check-unobserved-invalid"
+RUBRIC_CREDENCE_CODES = (CREDENCE_NOT_RUBRIC, RELATION_NOT_ALLOWED, CHECK_UNOBSERVED_INVALID)
+
+# The relation of a check edge: from the node a check was run on to the check's evidence node.
+CHECK_EDGE = SUPPORTS
+
+# The check results, and the ``attributes.observed`` each implies; an errored check is not observed.
+_OBSERVED = {"passed": True, "failed": False, "error": None}
 
 # The last component of a span child's locator: the half-open character range within its parent.
 _CHARS = re.compile(r";chars=(\d+)-(\d+)$")
@@ -582,17 +597,131 @@ def _assessed(graph: Graph, rubric: Rubric) -> list[Finding]:
     return findings
 
 
-def check_graph(graph: Graph, rubric: Rubric, level: str = TYPED) -> list[Finding]:
+def check_of(rubric: Rubric, node: Node) -> Check | None:
+    """Return the check type of a check node: an evidence node of a check type that carries a check record.
+
+    Args:
+        rubric: The rubric.
+        node: The node.
+
+    Returns:
+        The check type, or ``None`` if the node is not a check node.
+    """
+    if origin_of(node) == EVIDENCE and node.kind in rubric.checks and isinstance(node.attributes.get("check"), Mapping):
+        return rubric.checks[node.kind]
+    return None
+
+
+def rubric_base(rubric: Rubric, node: Node) -> Credence | None:
+    """Return the base the rubric gives a document or analyst node.
+
+    Args:
+        rubric: The rubric.
+        node: A document or analyst node.
+
+    Returns:
+        ``premises.base`` for an analyst node when the rubric has ``[premises]``, else the base of the
+        node's type; ``None`` if the type has none or is not declared.
+    """
+    if origin_of(node) == ANALYST and rubric.premises is not None:
+        return rubric.premises.base
+    node_type = rubric.types.get(node.kind)
+    return node_type.base if node_type is not None else None
+
+
+def _requires_strength(rubric: Rubric, source: Node, target: Node) -> Credence | None:
+    """The strength the rubric gives a ``requires`` from ``source`` into ``target``, if it gives one."""
+    if origin_of(source) == ANALYST and rubric.premises is not None:
+        return rubric.premises.strength
+    node_type = rubric.types.get(target.kind)
+    rule = node_type.rests_on if node_type is not None else None
+    return rule.strength if rule is not None and rule.relation == REQUIRES else None
+
+
+def _show(credence: Credence | None) -> str:
+    """Write a credence for a message, or say there is none."""
+    return "none" if credence is None else format_credence(credence)
+
+
+def _observed(node: Node, check: Check | None) -> list[Finding]:
+    """The ``check-unobserved-invalid`` check of one node."""
+    has = "observed" in node.attributes
+    if check is None:
+        message = "attributes.observed is only for an evidence node of a check type with a check record"
+        return [_finding(CHECK_UNOBSERVED_INVALID, node, message)] if has else []
+    result = node.attributes["check"].get("result")  # type: ignore[union-attr]
+    if not isinstance(result, str) or result not in _OBSERVED:
+        message = f"its check result is {_plain(result)!r}, not one of {list(_OBSERVED)}"
+        return [_finding(CHECK_UNOBSERVED_INVALID, node, message)]
+    expected = _OBSERVED[result]
+    if (not has) if expected is None else (has and node.attributes["observed"] is expected):
+        return []
+    wanted = "absent" if expected is None else str(expected).lower()
+    found = f"{_plain(node.attributes['observed'])!r}" if has else "absent"
+    message = f"a {result} check needs attributes.observed {wanted}, and it is {found}"
+    return [_finding(CHECK_UNOBSERVED_INVALID, node, message)]
+
+
+def _relation_finding(code: str, relation: Relation, message: str) -> Finding:
+    """Build a violation about one relation."""
+    nodes = (relation.source, relation.target)
+    return Finding(f"{code}:{relation.id}", code, f"relation {relation.id!r}: {message}", nodes, (relation.id,))
+
+
+def _rubric_credences(graph: Graph, rubric: Rubric) -> list[Finding]:
+    """Every ``rubric_credences`` violation: nodes in graph order, then relations in graph order.
+
+    Document and analyst nodes may be joined only by ``requires``, and only to each other or by a check
+    edge to a check node; their bases and strengths, and those of check nodes and check edges, are
+    the rubric's. With only ``requires`` parents a node's probability is its base times a product of
+    factors at most 1, so without an observation no credence exceeds the mean of its node's base.
+    """
+    findings = []
+    propositions = {node.id for node in graph if origin_of(node) in (DOCUMENT, ANALYST)}
+    checks = {node.id: check for node in graph if (check := check_of(rubric, node)) is not None}
+    for node in graph:
+        check = checks.get(node.id)
+        expected = check.false_pass if check is not None else rubric_base(rubric, node)
+        if (node.id in propositions or check is not None) and node.base is not None and node.base != expected:
+            whose = f"check type {node.kind!r}'s false_pass" if check is not None else "the rubric's"
+            message = f"its base {_show(node.base)} is not {whose}, {_show(expected)}"
+            findings.append(_finding(CREDENCE_NOT_RUBRIC, node, message))
+        findings.extend(_observed(node, check))
+    for relation in graph.relations.values():
+        if not relation.is_inferential or not {relation.source, relation.target} & (propositions | checks.keys()):
+            continue
+        source, target = graph.nodes[relation.source], graph.nodes[relation.target]
+        if relation.type == REQUIRES and source.id in propositions and target.id in propositions:
+            strength = _requires_strength(rubric, source, target)
+        elif relation.type == CHECK_EDGE and source.id in propositions and target.id in checks:
+            strength = checks[target.id].edge_strength
+        else:
+            message = (
+                f"a {relation.type} from {source.id!r} to {target.id!r}: a document or analyst node rests only on "
+                f"requires from document or analyst nodes, and a check reaches one only by a {CHECK_EDGE} from it"
+            )
+            findings.append(_relation_finding(RELATION_NOT_ALLOWED, relation, message))
+            continue
+        if relation.strength != strength:
+            message = f"its strength {_show(relation.strength)} is not the rubric's, {_show(strength)}"
+            findings.append(_relation_finding(CREDENCE_NOT_RUBRIC, relation, message))
+    return findings
+
+
+def check_graph(graph: Graph, rubric: Rubric, level: str = TYPED, *, rubric_credences: bool = False) -> list[Finding]:
     """Check a graph against a rubric at a validation level and every level below it.
 
     Args:
         graph: The graph.
         rubric: The rubric.
         level: ``anchored``, ``typed`` or ``assessed``.
+        rubric_credences: Whether to add the rules of ``RUBRIC_CREDENCE_CODES``: every base and
+            strength is the rubric's, and only an observed check can raise a credence.
 
     Returns:
         Every violation: the ``anchored`` ones in graph order, then the ``typed`` ones, then the
-        ``assessed`` ones. Empty when the graph passes. The graph is compiled only at ``assessed``.
+        ``assessed`` ones, then, with ``rubric_credences``, those rules'. Empty when the graph
+        passes. The graph is compiled only at ``assessed``.
 
     Raises:
         ValueError: If the level is not one of ``LEVELS``.
@@ -606,6 +735,8 @@ def check_graph(graph: Graph, rubric: Rubric, level: str = TYPED) -> list[Findin
         findings.extend(_typed(graph, rubric, structure))
     if level == ASSESSED:
         findings.extend(_assessed(graph, rubric))
+    if rubric_credences:
+        findings.extend(_rubric_credences(graph, rubric))
     return findings
 
 
