@@ -413,6 +413,47 @@ def test_no_evidence():
     ]
 
 
+def _check_node(**changes) -> Node:
+    """A passed recompute-numbers check node: an evidence node of a check type with a check record."""
+    fields = {
+        "kind": "recompute-numbers",
+        "statement": "recompute-numbers on s-1: passed",
+        "base": Beta(1, 9),
+        "attributes": {"origin": "evidence", "check": {"result": "passed"}, "observed": True},
+    }
+    fields.update(changes)
+    return Node("c-1", **fields)
+
+
+@pytest.mark.parametrize("form", ["supports", "observes"])
+def test_check_edge_is_evidence(form):
+    """Test that a check edge or an observes relation out of a node to a check node backs its verdict."""
+    result, claim, _, rests, _ = assessed_graph()
+    if form == "supports":
+        check = _check_node()
+        edge = Relation("ce", "supports", "s-1", "c-1", strength=0.9)
+    else:
+        check = _check_node(base=None)
+        edge = Relation("ce", "observes", "s-1", "c-1", sensitivity=Beta(19, 1), false_pass=Beta(1, 9))
+    assert violations(build(result, claim, check, rests, edge), "assessed") == []
+
+
+def test_check_edge_negative_controls():
+    """Test that only a check relation out of the judged node to a check node backs its verdict."""
+    result, claim, plain, rests, _ = assessed_graph()
+    check = _check_node()
+    assert violations(build(result, claim, check, rests), "assessed") == ["no-evidence:s-1"]
+    to_plain_evidence = Relation("ce", "supports", "s-1", "x-1", strength=0.9)
+    assert violations(build(result, claim, plain, rests, to_plain_evidence), "assessed") == ["no-evidence:s-1"]
+    unrecorded = _check_node(attributes={"origin": "evidence"})
+    edge = Relation("ce", "supports", "s-1", "c-1", strength=0.9)
+    assert violations(build(result, claim, unrecorded, rests, edge), "assessed") == ["no-evidence:s-1"]
+    wrong_type = Relation("ce", "requires", "s-1", "c-1", strength=0.9)
+    assert violations(build(result, claim, check, rests, wrong_type), "assessed") == ["no-evidence:s-1"]
+    from_another = Relation("ce", "supports", "s-2", "c-1", strength=0.9)
+    assert violations(build(result, claim, check, rests, from_another), "assessed") == ["no-evidence:s-1"]
+
+
 def test_compile_error_only_at_assessed():
     """Test that a graph that does not compile fails ``assessed`` only, naming the node without a base."""
     result, claim, *rest = assessed_graph()

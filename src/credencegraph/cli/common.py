@@ -13,7 +13,7 @@ import json
 import os
 import tempfile
 from collections import Counter
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Collection, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated, Any, NoReturn
@@ -83,6 +83,13 @@ IMPOSSIBLE_GRAPH_HINT = (
 CREDENCE_FORMS = "a probability such as 0.3, or beta:ALPHA,BETA such as beta:8,2"
 
 JsonOption = Annotated[bool, typer.Option("--json", help="Print one JSON object on stdout instead of text.")]
+ObservedOption = Annotated[
+    bool,
+    typer.Option(
+        "--observed",
+        help="Also condition on every node's attributes.observed, merged with --given; a conflict is an error.",
+    ),
+]
 GraphPath = Annotated[Path, typer.Argument(help="The graph file.", show_default=False)]
 NodeArgument = Annotated[str, typer.Argument(help="The node's id.", show_default=False)]
 
@@ -469,39 +476,121 @@ def parse_assignment(items: Iterable[str], option: str, *, default: bool | None 
     return assignment
 
 
-def check_consistent(network: Network, evidence: dict[str, bool], interventions: dict[str, bool]) -> None:
+def observed_values(graph: Graph) -> dict[str, bool]:
+    """Read the observations a graph records, for ``--observed``: every node's ``attributes.observed``.
+
+    Args:
+        graph: The graph.
+
+    Returns:
+        Node ids and their observed values, in graph order.
+
+    Raises:
+        CliError: If a node's ``attributes.observed`` is not ``true`` or ``false``.
+    """
+    observed: dict[str, bool] = {}
+    for node in graph:
+        if "observed" not in node.attributes:
+            continue
+        value = node.attributes["observed"]
+        if not isinstance(value, bool):
+            raise CliError(
+                INVALID_ARGUMENT,
+                f"--observed reads attributes.observed of {node.id!r}, and it is {json.dumps(value)}, not true or false",
+                f"set attributes.observed of {node.id!r} to true or false, or remove it to leave the node unobserved",
+                {"node": node.id},
+            )
+        observed[node.id] = value
+    return observed
+
+
+def merge_observed(given: dict[str, bool], observed: dict[str, bool]) -> dict[str, bool]:
+    """Merge the ``--observed`` values into the ``--given`` values.
+
+    Args:
+        given: The ``--given`` values.
+        observed: The ``--observed`` values.
+
+    Returns:
+        The ``--given`` values, then the ``--observed`` values for nodes they leave out.
+
+    Raises:
+        CliError: If ``--given`` gives a node the other value from the one it records as observed.
+    """
+    for node_id, value in observed.items():
+        if given.get(node_id, value) != value:
+            raise CliError(
+                INVALID_ARGUMENT,
+                f"--given {render_item(node_id, given[node_id])} contradicts --observed {render_item(node_id, value)}, "
+                f"the value in its attributes.observed",
+                f"drop the --given for {node_id!r}, or give it the observed value; or drop --observed",
+                {"node": node_id},
+            )
+    return {**given, **observed}
+
+
+def check_consistent(
+    network: Network,
+    evidence: dict[str, bool],
+    interventions: dict[str, bool],
+    observed: Collection[str] = (),
+) -> None:
     """Refuse values that contradict each other outright, before any inference.
 
-    Nodes merged by ``equivalent`` relations are one proposition, so ``--set`` or ``--given`` must give
-    them the same value, and ``--given`` must agree with ``--set`` on a proposition it fixes.
+    Nodes merged by ``equivalent`` relations are one proposition, so ``--set`` or the evidence must give
+    them the same value, and the evidence must agree with ``--set`` on a proposition it fixes.
 
     Args:
         network: The compiled network.
-        evidence: The ``--given`` values.
+        evidence: The ``--given`` values, with any ``--observed`` ones merged in.
         interventions: The ``--set`` values.
+        observed: The evidence nodes whose value came from ``--observed``; the others came from ``--given``.
 
     Raises:
-        CliError: If two merged nodes get different values from one flag, or ``--given`` contradicts ``--set``.
+        CliError: If two merged nodes get different values from the evidence or from ``--set``, or the
+            evidence contradicts ``--set``.
     """
-    for flag, assignment in (("--set", interventions), ("--given", evidence)):
-        seen: dict[int, tuple[str, bool]] = {}
-        for node_id, value in assignment.items():
-            other, previous = seen.setdefault(network.index(node_id), (node_id, value))
-            if previous != value:
-                raise CliError(
-                    INVALID_ARGUMENT,
-                    f"{flag} gives the equivalent nodes {other!r} and {node_id!r} different values",
-                    f"equivalent nodes are one proposition; give them the same {flag} value, or pass {flag} for only one",
-                )
+
+    def flag_of(node_id: str) -> str:
+        return "--observed" if node_id in observed else "--given"
+
+    seen: dict[int, tuple[str, bool]] = {}
+    for node_id, value in interventions.items():
+        other, previous = seen.setdefault(network.index(node_id), (node_id, value))
+        if previous != value:
+            raise CliError(
+                INVALID_ARGUMENT,
+                f"--set gives the equivalent nodes {other!r} and {node_id!r} different values",
+                "equivalent nodes are one proposition; give them the same --set value, or pass --set for only one",
+            )
+    seen = {}
+    for node_id, value in evidence.items():
+        other, previous = seen.setdefault(network.index(node_id), (node_id, value))
+        if previous == value:
+            continue
+        first, second = flag_of(other), flag_of(node_id)
+        if first == second:
+            raise CliError(
+                INVALID_ARGUMENT,
+                f"{first} gives the equivalent nodes {other!r} and {node_id!r} different values",
+                f"equivalent nodes are one proposition; give them the same {first} value, or pass {first} for only one",
+            )
+        raise CliError(
+            INVALID_ARGUMENT,
+            f"{first} {render_item(other, previous)} contradicts {second} {render_item(node_id, value)}, "
+            f"and {other!r} and {node_id!r} are equivalent",
+            "equivalent nodes are one proposition; drop the --given, or give it the observed value; or drop --observed",
+        )
     fixed = {network.index(node_id): (node_id, value) for node_id, value in interventions.items()}
     for node_id, value in evidence.items():
         other, setting = fixed.get(network.index(node_id), (node_id, value))
         if setting != value:
+            flag = flag_of(node_id)
             merged = "" if other == node_id else f", and {other!r} and {node_id!r} are equivalent"
             raise CliError(
                 INVALID_ARGUMENT,
-                f"--given {render_item(node_id, value)} contradicts --set {render_item(other, setting)}{merged}",
-                "a proposition fixed by --set holds that value; drop the --given, or give it the --set value",
+                f"{flag} {render_item(node_id, value)} contradicts --set {render_item(other, setting)}{merged}",
+                f"a proposition fixed by --set holds that value; drop the {flag}, or give it the --set value",
             )
 
 

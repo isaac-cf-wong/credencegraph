@@ -52,7 +52,9 @@ format. These are the facts it relies on (paths are under `src/credencegraph/`):
   `exclusive` and `observes` is an annotation that inference ignores
   (`core/relation.py:14-41`). `requires`, `supports` and `refutes` must carry a
   strength (`core/relation.py:87-95`), and their source is the premise and their
-  target the conclusion (`diagnostics/structure.py:96`).
+  target the conclusion (`diagnostics/structure.py:96`). `observes` carries two
+  credences instead, `sensitivity` and `false_pass`, both required, and no
+  strength; no other type may carry either (`core/relation.py:87-104`).
 - The inference variables are the nodes that have a `base` or are an endpoint of
   an inferential relation (`semantics/compiler.py:60-73`). A chunk that is only
   typed and annotated is not a variable and needs no `base`.
@@ -241,8 +243,10 @@ An **evidence** node has `origin = "evidence"`, a type the rubric allows for
 evidence, a `statement`, and any sources (an external paper, a code commit, a
 dataset). It is joined to the node it bears on by a relation from the evidence
 node to that node: `supports` or `refutes` with a strength, or the annotation
-`assesses` when it should not enter inference. How a check result is
-parameterised is outside this contract.
+`assesses` when it should not enter inference. A **check node**, the evidence
+node that records a check run on another node, is joined the other way, in
+likelihood direction, from the checked node to the check node; see
+[Edge kinds](#edge-kinds).
 
 Neither kind has a `form`: forms and faithfulness apply to document nodes only.
 Edge rules and assessments apply to every origin. Neither kind is ever
@@ -260,6 +264,33 @@ Edge rules and assessments apply to every origin. Neither kind is ever
 - `supports` or `refutes` (inferential, with a strength) or `assesses`
   (annotation), evidence node → the node it bears on: evidence for or against
   that node.
+- `observes` (inferential, with a `sensitivity` and a `false_pass`) or
+  `supports` (inferential, with a strength), checked node → check node: a check
+  run on the node, in likelihood direction, from the node whose truth the check
+  bears on to the evidence node that records its result. A **check node** is an
+  evidence node whose type is a check type of the rubric and that carries a
+  check record, an object, in `attributes.check` (see `--rubric-credences` under
+  [Validation levels](#validation-levels)).
+
+The `observes` relation carries two credences and no strength: `sensitivity`,
+P(pass | checked node true), and `false_pass`, P(pass | checked node false). The
+engine requires both on every `observes` relation, refuses a `strength` on one,
+and refuses a `sensitivity` or `false_pass` on any other type. Its target is an
+observation, whose probability the relation alone sets: it has no `base` and no
+other relation into it (otherwise the graph is a `compile-error`). The
+`supports` form is the check edge of `--rubric-credences`: the check node's
+`base` is the check type's `false_pass` and the strength is
+`1 - (1 - E[sensitivity]) / (1 - E[false_pass])`, which gives a pass the same
+probabilities at the means of the two credences. With either form, a check edge
+out of a node to a check node backs that node's verdict (`no-evidence`).
+
+The graph stores no evidence values, so a check node records its result as
+`attributes.observed`: `true` for a passed check, `false` for a failed one, and
+absent for one that errored, which is not observed and changes no credence.
+`query --observed` and `diagnose --observed` condition on every node that
+carries `attributes.observed`, merged with any `--given` values; a `--given`
+value that contradicts an observed one is an `invalid-argument`. Without the
+flag the observations are not conditioned on.
 
 What a node rests on is recorded **only** as relations, never also inside its
 form, so there is one source of truth for the argument's structure. A compound
@@ -545,7 +576,8 @@ The assessment is `attributes.assessment`, one of:
 
 - `unassessed`: A node of an `assess = true` type has no `assessment`.
 - `no-evidence`: A `holds`, `fails` or `undetermined` verdict with no relation
-  into the node from an evidence node.
+  into the node from an evidence node, and no check edge (`supports`) or
+  `observes` relation out of it to a check node.
 - `missing-reason`: A `not_assessed` assessment without a non-empty `reason`.
 - `compile-error`: The graph does not compile; the details are those of today's
   `compile-error`.

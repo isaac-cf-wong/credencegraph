@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from credencegraph.core.credence import Credence, format_credence
 from credencegraph.core.graph import Graph
 from credencegraph.core.node import Node
-from credencegraph.core.relation import REQUIRES, SUPPORTS, Relation
+from credencegraph.core.relation import OBSERVES, REQUIRES, SUPPORTS, Relation
 from credencegraph.diagnostics.records import Finding
 from credencegraph.diagnostics.structure import missing_parameters
 from credencegraph.rubric.faithfulness import unfaithful
@@ -125,6 +125,10 @@ RUBRIC_CREDENCE_CODES = (CREDENCE_NOT_RUBRIC, RELATION_NOT_ALLOWED, CHECK_UNOBSE
 
 # The relation of a check edge: from the node a check was run on to the check's evidence node.
 CHECK_EDGE = SUPPORTS
+
+# The relations, in likelihood direction, by which a check node backs a verdict on the node it was run on:
+# a check edge, or an ``observes`` relation, whose sensitivity and false-pass rate are the check's.
+_CHECK_RELATIONS = (CHECK_EDGE, OBSERVES)
 
 # The check results, and the ``attributes.observed`` each implies; an errored check is not observed.
 _OBSERVED = {"passed": True, "failed": False, "error": None}
@@ -582,19 +586,33 @@ def _assessed(graph: Graph, rubric: Rubric) -> list[Finding]:
             reason = assessment.get("reason")  # type: ignore[union-attr]
             if not isinstance(reason, str) or not reason.strip():
                 findings.append(_finding(MISSING_REASON, node, "a not_assessed verdict needs a non-empty reason"))
-        elif not any(
-            relation.target == node.id and origin_of(graph.nodes[relation.source]) == EVIDENCE
-            for relation in graph.relations.values()
-        ):
-            findings.append(
-                _finding(NO_EVIDENCE, node, f"the verdict {verdict!r} has no relation from an evidence node")
+        elif not any(_backs(graph, rubric, relation, node) for relation in graph.relations.values()):
+            message = (
+                f"the verdict {verdict!r} has no relation from an evidence node, and no {CHECK_EDGE} or "
+                f"{OBSERVES} relation to a check node"
             )
+            findings.append(_finding(NO_EVIDENCE, node, message))
     try:
         compile_graph(graph)
     except CompileError as error:
         nodes = tuple(node_id for finding in missing_parameters(graph) for node_id in finding.nodes)
         findings.append(Finding(f"{COMPILE_ERROR}:graph", COMPILE_ERROR, f"the graph does not compile: {error}", nodes))
     return findings
+
+
+def _backs(graph: Graph, rubric: Rubric, relation: Relation, node: Node) -> bool:
+    """Tell whether a relation is evidence for a verdict on a node.
+
+    It is when it points into the node from an evidence node, or out of the node to a check node by a
+    relation of ``_CHECK_RELATIONS``: a check points in likelihood direction, from what it checked.
+    """
+    if relation.target == node.id:
+        return origin_of(graph.nodes[relation.source]) == EVIDENCE
+    return (
+        relation.source == node.id
+        and relation.type in _CHECK_RELATIONS
+        and check_of(rubric, graph.nodes[relation.target]) is not None
+    )
 
 
 def check_of(rubric: Rubric, node: Node) -> Check | None:
