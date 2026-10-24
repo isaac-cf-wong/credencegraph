@@ -61,17 +61,20 @@ equivalent nodes; see [Diagnosing under evidence](#diagnosing-under-evidence).
 record its own observed value as `attributes.observed`, `true` or `false`; a
 check that errored or was not run leaves it absent. `query --observed` and
 `diagnose --observed` add the value of every node that carries one to the
-evidence, merged with any `--given` values: a `--given` value may repeat an
-observed one, and one that contradicts it, directly or through an equivalent
-node, is an `invalid-argument`, as is an `attributes.observed` that is not
-`true` or `false`. A node without `attributes.observed` is not conditioned on,
-so a check with no recorded result changes no answer. With `--observed` alone, a
-`conditional` query takes its evidence from the graph, and is an
-`invalid-argument` when no node carries an observation. Without `--observed`,
-`attributes.observed` is ignored. The JSON response adds `"observed"`, the
-values read, after `"given"` when the flag is passed; `"given"` holds only the
-`--given` values. The relation id defaults to `SOURCE-TYPE-TARGET`; pass `--id`
-to add a second relation of the same type between the same nodes.
+evidence, merged with any `--given` values. Each such node must take part in
+inference, as a `--given` node must: one with no base and no inferential
+relation, such as a node only annotations reach, is an `invalid-argument`, as is
+an `attributes.observed` that is not `true` or `false`. A `--given` value may
+repeat an observed one, and one that contradicts it, directly or through an
+equivalent node, is an `invalid-argument`. A node without `attributes.observed`
+is not conditioned on, so a check with no recorded result changes no answer.
+With `--observed` alone, a `conditional` query takes its evidence from the
+graph, and is an `invalid-argument` when no node carries an observation. Without
+`--observed`, `attributes.observed` is ignored. The JSON response adds
+`"observed"`, the values read, after `"given"` when the flag is passed;
+`"given"` holds only the `--given` values. The relation id defaults to
+`SOURCE-TYPE-TARGET`; pass `--id` to add a second relation of the same type
+between the same nodes.
 
 A relation type outside `requires`, `supports`, `refutes`, `equivalent` and
 `exclusive` is an annotation, which inference ignores. A type close to an
