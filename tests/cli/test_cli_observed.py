@@ -1,8 +1,8 @@
 """``query --observed`` and ``diagnose --observed``: conditioning on the observations a graph records.
 
 A claim ``c`` of prior h is checked by a check ``k`` of sensitivity s = P(pass | c) and false-pass rate
-f = P(pass | not c), recorded either as an ``observes`` relation or as the equivalent ``supports``
-check edge into a check node of base f. Every expected value is written from Bayes' rule in odds
+f = P(pass | not c), recorded either as an ``observes`` check edge or as the equivalent ``supports``
+relation into a check node of base f. Every expected value is written from Bayes' rule in odds
 form, independently of the engine.
 """
 

@@ -123,12 +123,13 @@ RELATION_NOT_ALLOWED = "relation-not-allowed"
 CHECK_UNOBSERVED_INVALID = "check-unobserved-invalid"
 RUBRIC_CREDENCE_CODES = (CREDENCE_NOT_RUBRIC, RELATION_NOT_ALLOWED, CHECK_UNOBSERVED_INVALID)
 
-# The relation of a check edge: from the node a check was run on to the check's evidence node.
-CHECK_EDGE = SUPPORTS
+# The relation of a check edge: from the node a check was run on to the check's evidence node, carrying the
+# check's sensitivity and false-pass rate.
+CHECK_EDGE = OBSERVES
 
 # The relations, in likelihood direction, by which a check node backs a verdict on the node it was run on:
-# a check edge, or an ``observes`` relation, whose sensitivity and false-pass rate are the check's.
-_CHECK_RELATIONS = (CHECK_EDGE, OBSERVES)
+# a check edge, or the equivalent ``supports`` into a check node whose base is the false-pass rate.
+_CHECK_RELATIONS = (CHECK_EDGE, SUPPORTS)
 
 # The check results, and the ``attributes.observed`` each implies; an errored check is not observed.
 _OBSERVED = {"passed": True, "failed": False, "error": None}
@@ -589,7 +590,7 @@ def _assessed(graph: Graph, rubric: Rubric) -> list[Finding]:
         elif not any(_backs(graph, rubric, relation, node) for relation in graph.relations.values()):
             message = (
                 f"the verdict {verdict!r} has no relation from an evidence node, and no {CHECK_EDGE} or "
-                f"{OBSERVES} relation to a check node"
+                f"{SUPPORTS} relation to a check node"
             )
             findings.append(_finding(NO_EVIDENCE, node, message))
     try:
@@ -690,19 +691,21 @@ def _rubric_credences(graph: Graph, rubric: Rubric) -> list[Finding]:
     """Every ``rubric_credences`` violation: nodes in graph order, then relations in graph order.
 
     Document and analyst nodes may be joined only by ``requires``, and only to each other or by a check
-    edge to a check node; their bases and strengths, and those of check nodes and check edges, are
-    the rubric's. With only ``requires`` parents a node's probability is its base times a product of
-    factors at most 1, so without an observation no credence exceeds the mean of its node's base.
+    edge to a check node; their bases and strengths, and the credences of check edges, are the rubric's,
+    and a check node has no base. With only ``requires`` parents a node's probability is its base times
+    a product of factors at most 1, so without an observation no credence exceeds the mean of its node's
+    base.
     """
     findings = []
     propositions = {node.id for node in graph if origin_of(node) in (DOCUMENT, ANALYST)}
     checks = {node.id: check for node in graph if (check := check_of(rubric, node)) is not None}
     for node in graph:
         check = checks.get(node.id)
-        expected = check.false_pass if check is not None else rubric_base(rubric, node)
-        if (node.id in propositions or check is not None) and node.base is not None and node.base != expected:
-            whose = f"check type {node.kind!r}'s false_pass" if check is not None else "the rubric's"
-            message = f"its base {_show(node.base)} is not {whose}, {_show(expected)}"
+        if check is not None and node.base is not None:
+            message = f"a check node takes no base, as its {CHECK_EDGE} relation sets its probability"
+            findings.append(_finding(CREDENCE_NOT_RUBRIC, node, message))
+        elif node.id in propositions and node.base is not None and node.base != rubric_base(rubric, node):
+            message = f"its base {_show(node.base)} is not the rubric's, {_show(rubric_base(rubric, node))}"
             findings.append(_finding(CREDENCE_NOT_RUBRIC, node, message))
         findings.extend(_observed(node, check))
     for relation in graph.relations.values():
@@ -711,18 +714,23 @@ def _rubric_credences(graph: Graph, rubric: Rubric) -> list[Finding]:
         source, target = graph.nodes[relation.source], graph.nodes[relation.target]
         if relation.type == REQUIRES and source.id in propositions and target.id in propositions:
             strength = _requires_strength(rubric, source, target)
+            if relation.strength != strength:
+                message = f"its strength {_show(relation.strength)} is not the rubric's, {_show(strength)}"
+                findings.append(_relation_finding(CREDENCE_NOT_RUBRIC, relation, message))
         elif relation.type == CHECK_EDGE and source.id in propositions and target.id in checks:
-            strength = checks[target.id].edge_strength
+            check = checks[target.id]
+            if (relation.sensitivity, relation.false_pass) != (check.sensitivity, check.false_pass):
+                message = (
+                    f"its sensitivity {_show(relation.sensitivity)} and false_pass {_show(relation.false_pass)} "
+                    f"are not check type {target.kind!r}'s, {_show(check.sensitivity)} and {_show(check.false_pass)}"
+                )
+                findings.append(_relation_finding(CREDENCE_NOT_RUBRIC, relation, message))
         else:
             message = (
                 f"a {relation.type} from {source.id!r} to {target.id!r}: a document or analyst node rests only on "
-                f"requires from document or analyst nodes, and a check reaches one only by a {CHECK_EDGE} from it"
+                f"requires from document or analyst nodes, and a check reaches one only by an {CHECK_EDGE} from it"
             )
             findings.append(_relation_finding(RELATION_NOT_ALLOWED, relation, message))
-            continue
-        if relation.strength != strength:
-            message = f"its strength {_show(relation.strength)} is not the rubric's, {_show(strength)}"
-            findings.append(_relation_finding(CREDENCE_NOT_RUBRIC, relation, message))
     return findings
 
 

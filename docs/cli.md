@@ -109,9 +109,11 @@ credencegraph coverage paper.json --rubric methods.toml
   holds the details a plain `check` would give. `--level` without `--rubric` is
   an `invalid-argument`; without `--rubric`, `check` is unchanged.
 - `check --rubric RUBRIC --rubric-credences` adds the rules that every base and
-  strength is the rubric's and that only an observed check can raise a credence;
-  the response then carries `"rubric_credences": true`. Like `--level`, it is an
-  `invalid-argument` without `--rubric`.
+  strength is the rubric's and that only an observed check can raise a credence,
+  joined to the node it checks by an `observes` relation with the check type's
+  `sensitivity` and `false_pass`; the response then carries
+  `"rubric_credences": true`. Like `--level`, it is an `invalid-argument`
+  without `--rubric`.
 - `coverage --rubric RUBRIC` never fails on a graph that loads: it reports
   `nodes`, `by_origin`, `by_type` (document nodes, with each type's `share`),
   the `untyped` nodes, the `unexamined` ones (needing an assessment and having
