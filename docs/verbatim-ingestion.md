@@ -289,9 +289,17 @@ A rubric is a TOML file. The core reads it with the standard library
 # of credencegraph; its priors are illustrative, not a recommendation.
 
 [rubric]
-format = 1             # the rubric format version this file is written in
+format = 2             # the rubric format version this file is written in
 name = "methods-paper" # identifies the rubric in reports
-version = "2026.1"     # the rubric's own version, chosen by its author
+version = "2026.2"     # the rubric's own version: changes whenever any value in the file changes
+
+# How the values were obtained. These are illustrative, fitted against nothing. `status` is "example" or
+# "calibrated"; `scoring` is the proper scoring rule the values were fitted with, "brier" or "log".
+[calibration]
+status = "example"
+scoring = "log"
+against = "nothing: the values are illustrative"
+date = 2026-10-10
 
 # Parameters that `scope` fields may range over. TOML has no null, so an open end is -inf or inf.
 [parameters.sample_rate]
@@ -372,14 +380,52 @@ origins = ["document", "analyst"]
 base = "beta:8,2"
 
 [types.check]
-description = "A check run on another node."
+description = "A check run on another node, of a kind not listed under [checks]."
 origins = ["evidence"]
+
+# Check types. A check name is the type of the evidence nodes the check produces, so it may not also be
+# declared under [types]. `targets` are the declared types a check may be run on; `sensitivity` is
+# P(pass | target true) and `false_pass` is P(pass | target false), and the mean of `sensitivity` must exceed
+# the mean of `false_pass`. `models` lists the exact model ids the values were fitted with, and is empty for a
+# check with no model in the loop.
+[checks.recompute-numbers]
+description = "Re-evaluate an arithmetic relation between numbers the text reports."
+targets = ["result", "claim"]
+sensitivity = "beta:19,1"
+false_pass = "beta:1,9"
+models = []
+
+[checks.citation-support]
+description = "Judge whether the cited source supports the citing sentence."
+targets = ["literature_claim"]
+sensitivity = "beta:8,2"
+false_pass = "beta:2,8"
+models = ["example-model-2026-01-01"]
+
+# The implicit-premise pass.
+[premises]
+base = "beta:2,2"      # the prior of an implicit premise
+strength = "beta:9,1"  # the strength of its requires relation into the conclusion
+for = ["claim"]        # the conclusion types the pass runs on
+max_per_conclusion = 3
+
+# Hedge phrases and the credence each carries; compared after text normalisation and case-folding.
+[hedges]
+"suggests" = "beta:6,4"
+"may" = "beta:5,5"
+"we show" = "beta:9,1"
 ```
 
-- `rubric.format`: Rubric format version; `1` for this contract. A reader
-  refuses a version it does not know.
+- `rubric.format`: Rubric format version: `1` or `2`. Format 2 adds the
+  `calibration`, `checks`, `premises` and `hedges` tables below; a format-1 file
+  may not use them, and a reader refuses a format it does not know.
 - `rubric.name`, `rubric.version`: Free strings identifying the rubric, echoed
-  in every report.
+  in every report. `rubric.format` is the structure; `rubric.version` is the
+  values, and changes whenever any value in the file changes.
+- `calibration` (format 2): How the values were obtained. `status` is `example`
+  (illustrative values) or `calibrated`; `scoring` is the proper scoring rule
+  they were fitted with, `brier` or `log`; `against` describes the outcome set
+  they were fitted on; `date` is a TOML date. All four are required.
 - `parameters.<name>.unit`, `domain`: A parameter `scope` fields may name;
   `domain` is `[low, high]`, open by default. TOML has no null, so an open end
   is written `-inf` or `inf`.
@@ -399,6 +445,24 @@ origins = ["evidence"]
   in `types`, each of which must be a declared type. `strength` is what
   `annotate --rests-on` gives the relation it creates. `types`, `relation` and
   `strength` are required.
+- `checks.<name>` (format 2): A check type. Its name is the type of the evidence
+  nodes the check produces, so it may not also be declared under `types`; its
+  origins are `["evidence"]`. `targets` lists the declared types it may be run
+  on. `sensitivity` is `P(pass | target true)` and `false_pass` is
+  `P(pass | target false)`, in the credence syntax above; the mean of
+  `sensitivity` must exceed the mean of `false_pass`, since a check no more
+  likely to pass on a true target than a false one is no evidence. `models`
+  lists the exact model ids the values were fitted with, and is empty for a
+  check with no model in the loop. `description` is optional; the other four
+  keys are required.
+- `premises` (format 2): The implicit-premise pass. `base` is the prior of an
+  implicit premise, `strength` the strength of its `requires` relation into the
+  conclusion, `for` the declared conclusion types the pass runs on, and
+  `max_per_conclusion` (an integer of 1 or more) how many premises one
+  conclusion may receive. All four are required.
+- `hedges` (format 2): A hedge phrase and the credence it carries. Phrases are
+  compared after the [text normalisation](#text-normalisation-and-digest) and
+  case-folding, so two keys that differ only in case or whitespace are an error.
 
 Unknown keys are an error, so a misspelt rule is not silently ignored. A rubric
 is data: its priors are the author's, and the public package ships only the
@@ -504,7 +568,7 @@ prints:
 {
     "command": "coverage",
     "path": "paper.json",
-    "rubric": { "name": "methods-paper", "version": "2026.1" },
+    "rubric": { "name": "methods-paper", "version": "2026.2" },
     "nodes": 214,
     "by_origin": { "document": 205, "analyst": 6, "evidence": 3 },
     "by_type": {
