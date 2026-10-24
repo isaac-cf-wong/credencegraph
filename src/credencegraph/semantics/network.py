@@ -11,7 +11,8 @@ import numpy as np
 
 from credencegraph.core.credence import Credence, Point
 from credencegraph.core.errors import ValidationError
-from credencegraph.semantics.cpt import Term, exclusion_table, proposition_table
+from credencegraph.core.relation import OBSERVES
+from credencegraph.semantics.cpt import Term, exclusion_table, observation_table, proposition_table
 
 PROPOSITION = "proposition"
 CONSTRAINT = "constraint"
@@ -21,11 +22,12 @@ class ParameterKey(NamedTuple):
     """Names one parameter of a network.
 
     Attributes:
-        kind: ``"base"`` for a node's base, ``"strength"`` for a relation's strength.
+        kind: ``"base"`` for a node's base, ``"strength"`` for a relation's strength, and
+            ``"sensitivity"`` or ``"false_pass"`` for those of an ``observes`` relation.
         id: The id of the node or relation that carries the parameter.
     """
 
-    kind: Literal["base", "strength"]
+    kind: Literal["base", "strength", "sensitivity", "false_pass"]
     id: str
 
 
@@ -34,8 +36,8 @@ class Link:
     """An inferential relation into a proposition variable.
 
     Attributes:
-        relation: The relation id, which is also the id of its strength parameter.
-        type: ``requires``, ``supports`` or ``refutes``.
+        relation: The relation id, which is also the id of its parameters.
+        type: ``requires``, ``supports``, ``refutes`` or ``observes``.
         parent: Index of the parent variable.
     """
 
@@ -50,6 +52,8 @@ class Variable:
 
     A proposition variable stands for one node, or for several nodes merged by ``equivalent``
     relations. A constraint variable encodes one ``exclusive`` relation and is always observed true.
+    A proposition that is the target of an ``observes`` relation is an observation: that relation is
+    its one link, and it has no base.
 
     Attributes:
         index: Position of the variable in the network.
@@ -57,7 +61,8 @@ class Variable:
         kind: ``"proposition"`` or ``"constraint"``.
         members: The node ids the variable stands for; empty for a constraint.
         parents: Indices of the parent variables, ascending and distinct.
-        base: The node id whose ``base`` is the variable's base; ``None`` for a constraint.
+        base: The node id whose ``base`` is the variable's base; ``None`` for a constraint or an
+            observation.
         links: The inferential relations into the variable.
         relation: The ``exclusive`` relation id of a constraint; ``None`` for a proposition.
     """
@@ -70,6 +75,18 @@ class Variable:
     base: str | None = None
     links: tuple[Link, ...] = ()
     relation: str | None = None
+
+
+def is_observation(variable: Variable) -> bool:
+    """Tell whether a variable is an observation, the target of an ``observes`` relation.
+
+    Args:
+        variable: The variable.
+
+    Returns:
+        ``True`` if its one link is an ``observes`` relation.
+    """
+    return len(variable.links) == 1 and variable.links[0].type == OBSERVES
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -186,6 +203,11 @@ class Network:
             return Factor((variable.index,), _frozen(table))
         if variable.kind == CONSTRAINT:
             table = exclusion_table(len(variable.parents))
+        elif is_observation(variable):
+            relation = variable.links[0].relation
+            table = observation_table(
+                self._value(ParameterKey("sensitivity", relation)), self._value(ParameterKey("false_pass", relation))
+            )
         else:
             position = {parent: axis for axis, parent in enumerate(variable.parents)}
             terms = [

@@ -1,7 +1,8 @@
 """Parameter uncertainty: how far an answer moves when the parameters are drawn from their credences.
 
-Every parameter (each node's ``base`` and each relation's ``strength``) is treated as independent of
-the others. The point answer of a query needs no sampling: the joint probabilities of the network
+Every parameter (each node's ``base``, each relation's ``strength``, and the ``sensitivity`` and
+``false_pass`` of each ``observes`` relation) is treated as independent of the others: two
+``observes`` relations with the same credences, as from one kind of check, are drawn apart. The point answer of a query needs no sampling: the joint probabilities of the network
 are multilinear in independent parameters, so the predictive answer ``E[P(A, E)] / E[P(E)]`` equals
 ``P(A | E)`` with every parameter at its mean.
 

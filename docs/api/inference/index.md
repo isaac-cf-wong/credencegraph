@@ -30,8 +30,9 @@ Two exact engines are provided:
 
 ## Parameter uncertainty
 
-Every `base` and `strength` is treated as independent of the others. An `Answer`
-carries:
+Every parameter (each `base` and `strength`, and the `sensitivity` and
+`false_pass` of each `observes` relation) is treated as independent of the
+others. An `Answer` carries:
 
 - `point`: the probability with every parameter at its credence mean. Because
   each parameter enters a joint probability with degree at most one, this is
@@ -62,6 +63,14 @@ Parameters are independent by construction, so correlated inputs (two
 measurements sharing an unknown bias, say) cannot be expressed as correlated
 strengths. Model the shared cause as a proposition of its own, such as "the
 instrument is calibrated", with a relation into each.
+
+The same holds for the sensitivity and false-pass rate of `observes` relations:
+two relations from one kind of check, with the same calibration, each get their
+own independent draw of s and f, although the check kind's true rates are
+shared. When several such observations agree the band is too narrow, by about √n
+in log-odds for n of them, and when they disagree it can be too wide; the point
+answer is unaffected. See
+[Which way an observation points](../../worked-example.md#which-way-an-observation-points).
 
 <!-- prettier-ignore-start -->
 

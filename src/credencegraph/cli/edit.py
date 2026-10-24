@@ -30,7 +30,7 @@ from credencegraph.cli.common import (
 )
 from credencegraph.core.graph import Graph
 from credencegraph.core.node import DEFAULT_KIND, Node
-from credencegraph.core.relation import EQUIVALENT, EXCLUSIVE, INFERENTIAL_TYPES, STRENGTH_TYPES, Relation
+from credencegraph.core.relation import EQUIVALENT, EXCLUSIVE, INFERENTIAL_TYPES, OBSERVES, STRENGTH_TYPES, Relation
 from credencegraph.core.serialization import credence_to_json
 
 
@@ -162,7 +162,7 @@ def relate_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to each
         str,
         typer.Option(
             "--type",
-            help="requires, supports, refutes, equivalent or exclusive; any other type is an annotation.",
+            help="requires, supports, refutes, equivalent, exclusive or observes; any other type is an annotation.",
             show_default=False,
         ),
     ],
@@ -170,6 +170,20 @@ def relate_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to each
         str | None,
         typer.Option(
             help=f"Required for requires, supports and refutes, and forbidden otherwise: {CREDENCE_FORMS}.",
+            show_default=False,
+        ),
+    ] = None,
+    sensitivity: Annotated[
+        str | None,
+        typer.Option(
+            help=f"For observes only, and required there: P(target true | source true), {CREDENCE_FORMS}.",
+            show_default=False,
+        ),
+    ] = None,
+    false_pass: Annotated[
+        str | None,
+        typer.Option(
+            help=f"For observes only, and required there: P(target true | source false), {CREDENCE_FORMS}.",
             show_default=False,
         ),
     ] = None,
@@ -212,12 +226,27 @@ def relate_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to each
             reading = "carries no strength" if relation_type in INFERENTIAL_TYPES else "is an annotation"
             hint = f"did you mean --type {suggestion}?" if suggestion else "drop --strength"
             raise CliError(INVALID_ARGUMENT, f"type {relation_type!r} {reading}; it takes no --strength", hint)
+        for option, value in (("--sensitivity", sensitivity), ("--false-pass", false_pass)):
+            if relation_type == OBSERVES and value is None:
+                raise CliError(
+                    INVALID_ARGUMENT,
+                    f"an {OBSERVES} relation needs {option}",
+                    f"pass --sensitivity and --false-pass, each {CREDENCE_FORMS}",
+                )
+            if relation_type != OBSERVES and value is not None:
+                raise CliError(
+                    INVALID_ARGUMENT,
+                    f"type {relation_type!r} takes no {option}; only {OBSERVES} does",
+                    f"drop {option}, or use --type {OBSERVES}",
+                )
         relation = Relation(
             new_id,
             relation_type,
             source,
             target,
             strength=None if strength is None else parse_credence(strength, "--strength"),
+            sensitivity=None if sensitivity is None else parse_credence(sensitivity, "--sensitivity"),
+            false_pass=None if false_pass is None else parse_credence(false_pass, "--false-pass"),
         )
         graph.add_relation(relation)
         write_graph(graph, path)
@@ -234,6 +263,11 @@ def relate_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to each
                 "source": relation.source,
                 "target": relation.target,
                 "strength": None if relation.strength is None else credence_to_json(relation.strength),
+                **{
+                    name: credence_to_json(getattr(relation, name))
+                    for name in ("sensitivity", "false_pass")
+                    if getattr(relation, name) is not None
+                },
                 "inferential": relation.is_inferential,
             },
             "warnings": warnings,

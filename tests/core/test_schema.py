@@ -47,6 +47,8 @@ def full_doc() -> dict:
     g.add_relation(Relation("r4", "equivalent", "e", "h"))
     g.add_relation(Relation("r5", "exclusive", "e", "h"))
     g.add_relation(Relation("r6", "authored_by", "h", "p", attributes={"x": 1}))
+    g.add_node(Node("o"))
+    g.add_relation(Relation("r7", "observes", "h", "o", sensitivity=Beta(9, 1), false_pass=0.2))
     return graph_to_dict(g)
 
 
@@ -130,6 +132,13 @@ STRUCTURAL_BREAKS = {
     "strength on equivalent": _set(("relations", 3, "strength"), 0.5),
     "strength on exclusive": _set(("relations", 4, "strength"), {"alpha": 1, "beta": 1}),
     "strength on annotation": _set(("relations", 5, "strength"), 0.5),
+    "observes without sensitivity": _drop(("relations", 6, "sensitivity")),
+    "observes without false_pass": _drop(("relations", 6, "false_pass")),
+    "observes with null sensitivity": _set(("relations", 6, "sensitivity"), None),
+    "observes with bad false_pass": _set(("relations", 6, "false_pass"), 1.5),
+    "strength on observes": _set(("relations", 6, "strength"), 0.5),
+    "sensitivity on supports": _set(("relations", 0, "sensitivity"), 0.5),
+    "false_pass on annotation": _set(("relations", 5, "false_pass"), 0.5),
 }
 
 
@@ -179,3 +188,17 @@ def test_document_wide_rules_are_left_to_the_loader(validator):
         assert validator.is_valid(self_relation)
         with pytest.raises(CredenceGraphError, match=rf"of type '{rel['type']}' joins node 'e' to itself"):
             graph_from_dict(self_relation)
+
+
+def test_observes_credences_are_written_only_for_observes():
+    """Test that ``sensitivity`` and ``false_pass`` appear on an ``observes`` relation and nowhere else."""
+    relations = {relation["id"]: relation for relation in full_doc()["relations"]}
+    assert relations["r7"]["sensitivity"] == {"alpha": 9.0, "beta": 1.0}
+    assert relations["r7"]["false_pass"] == 0.2
+    assert all("sensitivity" not in relation for key, relation in relations.items() if key != "r7")
+
+
+def test_observes_round_trips():
+    """Test that an ``observes`` relation reads back equal to what was written."""
+    doc = full_doc()
+    assert graph_to_dict(graph_from_dict(copy.deepcopy(doc))) == doc

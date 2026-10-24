@@ -33,7 +33,7 @@ credencegraph diagnose g.json --target signal --targets stated
 | `init`     | Create an empty graph file; `--force` replaces an existing one.                                     |
 | `ingest`   | Build a graph of document nodes from a LaTeX or PDF document `SOURCE GRAPH`; see below.             |
 | `add-node` | Add a node: `--id`, and optionally `--statement`, `--kind`, `--base`, `--stated`, `--source`.       |
-| `relate`   | Add a relation `SOURCE TARGET --type TYPE`, with `--strength` where the type needs one.             |
+| `relate`   | Add a relation `SOURCE TARGET --type TYPE`, with `--strength` or `--sensitivity`, `--false-pass`.   |
 | `query`    | `marginal`, `joint`, `conditional` or `intervene`, with `--given`, `--set`, `--draws`, `--seed`.    |
 | `diagnose` | Every diagnostic's findings; `--target` or `--targets` adds weak points, `--given` conditions them. |
 | `check`    | Whether the file is a valid graph that compiles; with `--rubric`, whether it meets a rubric.        |
@@ -388,7 +388,7 @@ A failure exits with status 1 and prints an `error` object instead:
     "error": {
         "code": "cycle",
         "message": "relation 'claim-supports-signal' would create a cycle: claim --supports[claim-supports-signal]--> signal --supports[signal-supports-claim]--> claim",
-        "hint": "requires, supports and refutes relations must not form a cycle; drop or reverse one of the relations named",
+        "hint": "requires, supports, refutes and observes relations must not form a cycle; drop or reverse one of the relations named",
         "details": {
             "cycle": ["claim", "signal", "claim"],
             "relations": ["claim-supports-signal", "signal-supports-claim"]
@@ -405,13 +405,15 @@ people. The codes are `file-exists`, `file-not-found`, `io-error`,
 
 A graph that cannot be compiled for inference is a `compile-error`, whichever
 command meets it: an inference variable without a base, equivalent nodes with
-different bases, or a cycle that appears once equivalent nodes are merged. The
-`details` name the nodes: `errors` holds a `missing-parameter` finding per node
-without a base, and `conflicting_bases` each pair of disagreeing equivalent
-nodes. When `check` fails this way, `details` also carries the whole verdict:
-the `path`, the `nodes` and `relations` counts and the `warnings`. A passing
-`check` prints `{"command", "path", "nodes", "relations", "warnings"}`, where
-the warnings are the unanchored variables, which do not fail the check.
+different bases, an observation (the target of an `observes` relation) that has
+a base or another relation into it, or a cycle that appears once equivalent
+nodes are merged. The `details` name the nodes: `errors` holds a
+`missing-parameter` finding per node without a base, and `conflicting_bases`
+each pair of disagreeing equivalent nodes. When `check` fails this way,
+`details` also carries the whole verdict: the `path`, the `nodes` and
+`relations` counts and the `warnings`. A passing `check` prints
+`{"command", "path", "nodes", "relations", "warnings"}`, where the warnings are
+the unanchored variables, which do not fail the check.
 
 A `zero-probability` error means the evidence of a query has probability zero,
 so the query has no answer. The command works out the cause:
@@ -434,13 +436,13 @@ so the query has no answer. The command works out the cause:
   kept. A drop that leaves the command ill-formed, such as an `intervene` query
   without `--set`, is not offered. Moving any one of `details.move_any_one_of`
   off 0 and 1 does too, or all of `details.move_all_of`; those parameters are
-  listed with their values in `details.extreme_parameters`, as `base:NODE` or
-  `strength:RELATION`, and a base or strength at 0 or 1 that does not bear on
-  the query is not listed. A move is tried at 0.5, which stands for every other
-  value: in exact arithmetic, whether a query has probability zero depends only
-  on which bases and strengths are exactly 0 or 1. A base or strength within
-  rounding error of 0 or 1, such as 0.9999999999999999, can round a probability
-  to zero, and is not listed as one to move.
+  listed with their values in `details.extreme_parameters`, as `base:NODE`,
+  `strength:RELATION`, `sensitivity:RELATION` or `false_pass:RELATION`, and a
+  parameter at 0 or 1 that does not bear on the query is not listed. A move is
+  tried at 0.5, which stands for every other value: in exact arithmetic, whether
+  a query has probability zero depends only on which parameters are exactly 0
+  or 1. A parameter within rounding error of 0 or 1, such as 0.9999999999999999,
+  can round a probability to zero, and is not listed as one to move.
 - The search is bounded. Drops, moves and the removal of one exclusive relation
   are tried separately, never combined. Every single drop and every single move
   is tried; when none succeeds, sets of two, three and so on are tried, up to

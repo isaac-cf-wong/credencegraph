@@ -11,6 +11,7 @@ from credencegraph.core.obligation import DISCHARGE_KINDS, Discharge, Obligation
 from credencegraph.core.relation import (
     ACYCLIC_TYPES,
     INFERENTIAL_TYPES,
+    OBSERVES,
     STRENGTH_TYPES,
     Relation,
     is_inferential,
@@ -32,6 +33,7 @@ __all__ = [
     "DISCHARGE_KINDS",
     "FORMAT",
     "INFERENTIAL_TYPES",
+    "OBSERVES",
     "STRENGTH_TYPES",
     "VERSION",
     "Beta",

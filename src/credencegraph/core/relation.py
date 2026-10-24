@@ -16,15 +16,16 @@ SUPPORTS = "supports"
 REFUTES = "refutes"
 EQUIVALENT = "equivalent"
 EXCLUSIVE = "exclusive"
+OBSERVES = "observes"
 
 # Inferential types that carry a strength.
 STRENGTH_TYPES = frozenset({REQUIRES, SUPPORTS, REFUTES})
 
 # The fixed set of inferential relation types. Any other type string is an annotation.
-INFERENTIAL_TYPES = STRENGTH_TYPES | {EQUIVALENT, EXCLUSIVE}
+INFERENTIAL_TYPES = STRENGTH_TYPES | {EQUIVALENT, EXCLUSIVE, OBSERVES}
 
-# Types whose subgraph must stay acyclic.
-ACYCLIC_TYPES = STRENGTH_TYPES
+# Types whose subgraph must stay acyclic: those that make the source a parent of the target.
+ACYCLIC_TYPES = STRENGTH_TYPES | {OBSERVES}
 
 
 def is_inferential(relation_type: str) -> bool:
@@ -34,7 +35,8 @@ def is_inferential(relation_type: str) -> bool:
         relation_type: The relation type string.
 
     Returns:
-        ``True`` for ``requires``, ``supports``, ``refutes``, ``equivalent`` and ``exclusive``.
+        ``True`` for ``requires``, ``supports``, ``refutes``, ``equivalent``, ``exclusive`` and
+        ``observes``.
     """
     return relation_type in INFERENTIAL_TYPES
 
@@ -44,9 +46,14 @@ class Relation:
     """A directed relation between two nodes.
 
     ``strength`` is required for ``requires``, ``supports`` and ``refutes``, and forbidden for
-    every other type, including ``equivalent``, ``exclusive`` and all annotations. A bare float is read
-    as a ``Point``. ``equivalent`` and ``exclusive`` relations may not join a node to itself. Only an
-    inferential relation may carry an ``obligation``.
+    every other type, including ``equivalent``, ``exclusive``, ``observes`` and all annotations.
+    ``sensitivity`` and ``false_pass`` are required for ``observes`` and forbidden for every other
+    type. A bare float is read as a ``Point``. ``equivalent`` and ``exclusive`` relations may not join
+    a node to itself. Only an inferential relation may carry an ``obligation``.
+
+    An ``observes`` relation runs in likelihood direction, from a claim to an observation of it, such
+    as the outcome of a check: the observation is true with probability ``sensitivity`` when the
+    claim is true and ``false_pass`` when it is false.
 
     Attributes:
         id: Stable identifier, unique within the graph.
@@ -57,6 +64,8 @@ class Relation:
         attributes: Open JSON metadata, stored read-only: objects as read-only mappings, arrays as
             tuples.
         obligation: What must be true for the step to hold, and how it was met.
+        sensitivity: For ``observes``, P(target true | source true).
+        false_pass: For ``observes``, P(target true | source false).
     """
 
     id: str
@@ -66,6 +75,8 @@ class Relation:
     strength: Credence | None = None
     attributes: Mapping[str, FrozenJSON] = field(default_factory=dict)
     obligation: Obligation | None = None
+    sensitivity: Credence | None = None
+    false_pass: Credence | None = None
 
     def __post_init__(self) -> None:
         """Validate the fields and enforce the strength rules."""
@@ -82,6 +93,15 @@ class Relation:
             kind = "an inferential relation that carries no strength" if is_inferential(self.type) else "an annotation"
             msg = f"Relation {self.id!r} of type {self.type!r} is {kind}; it must not have a strength"
             raise ValidationError(msg)
+        for name in ("sensitivity", "false_pass"):
+            if self.type == OBSERVES:
+                if getattr(self, name) is None:
+                    msg = f"Relation {self.id!r} of type {OBSERVES!r} requires a {name}"
+                    raise ValidationError(msg)
+                object.__setattr__(self, name, as_credence(getattr(self, name)))
+            elif getattr(self, name) is not None:
+                msg = f"Relation {self.id!r} of type {self.type!r} must not have a {name}; only {OBSERVES!r} has one"
+                raise ValidationError(msg)
         if self.type in (EQUIVALENT, EXCLUSIVE) and self.source == self.target:
             msg = f"Relation {self.id!r} of type {self.type!r} joins node {self.source!r} to itself"
             raise ValidationError(msg)

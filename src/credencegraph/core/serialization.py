@@ -23,7 +23,17 @@ SCHEMA_RESOURCE = "graph-1.schema.json"
 
 _ANCHOR_FIELDS = {"document", "locator", "quote", "digest"}
 _NODE_FIELDS = {"id", "kind", "statement", "sources", "base", "stated", "attributes"}
-_RELATION_FIELDS = {"id", "type", "source", "target", "strength", "attributes", "obligation"}
+_RELATION_FIELDS = {
+    "id",
+    "type",
+    "source",
+    "target",
+    "strength",
+    "sensitivity",
+    "false_pass",
+    "attributes",
+    "obligation",
+}
 _OBLIGATION_FIELDS = {"statement", "discharge"}
 _DISCHARGE_FIELDS = {"kind", "theorem", "script", "digest", "status", "value", "tolerance", "anchor"}
 _GRAPH_FIELDS = {"format", "version", "nodes", "relations"}
@@ -81,7 +91,7 @@ def _anchor_to_dict(anchor: SourceAnchor) -> dict[str, Any]:
 
 
 def _relation_to_dict(rel: Relation) -> dict[str, Any]:
-    """Encode a relation; ``obligation`` is written only when the relation has one."""
+    """Encode a relation; ``sensitivity``, ``false_pass`` and ``obligation`` are written only when set."""
     out = {
         "id": rel.id,
         "type": rel.type,
@@ -90,6 +100,9 @@ def _relation_to_dict(rel: Relation) -> dict[str, Any]:
         "strength": _optional_credence(rel.strength),
         "attributes": copy_json(rel.attributes, "attributes"),
     }
+    for name in ("sensitivity", "false_pass"):
+        if getattr(rel, name) is not None:
+            out[name] = credence_to_json(getattr(rel, name))
     if rel.obligation is not None:
         out["obligation"] = _obligation_to_dict(rel.obligation)
     return out
@@ -186,6 +199,8 @@ def _relation_from_dict(value: Any, path: str) -> Relation:
         strength=_credence_from_json(fields.get("strength"), f"{path}.strength"),
         attributes=fields.get("attributes", {}),
         obligation=_obligation_from_dict(fields.get("obligation"), f"{path}.obligation"),
+        sensitivity=_credence_from_json(fields.get("sensitivity"), f"{path}.sensitivity"),
+        false_pass=_credence_from_json(fields.get("false_pass"), f"{path}.false_pass"),
     )
 
 
@@ -219,7 +234,8 @@ def graph_from_dict(data: Any) -> Graph:
     Raises:
         ValidationError: If the document is malformed, has the wrong format or an unsupported version, or
             breaks a rule of the data model. The message locates the offending item.
-        CycleError: If the relations form a cycle among ``requires``, ``supports`` and ``refutes``.
+        CycleError: If the relations form a cycle among ``requires``, ``supports``, ``refutes`` and
+            ``observes``.
     """
     document = _mapping(data, "document", _GRAPH_FIELDS, {"format", "version", "nodes", "relations"})
     if document["format"] != FORMAT:

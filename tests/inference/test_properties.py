@@ -5,6 +5,7 @@ from __future__ import annotations
 import itertools
 
 import numpy as np
+import pytest
 from _graphs import proposition_ids, random_assignment, random_graph
 from hypothesis import assume, given, reject, settings
 from hypothesis import strategies as st
@@ -39,12 +40,13 @@ def test_probabilities_lie_in_the_unit_interval(seed):
             assert 0.0 <= answer <= 1.0
 
 
+@pytest.mark.parametrize("observations", [False, True])
 @SETTINGS
 @given(seed=SEEDS)
-def test_complements_sum_to_one(seed):
+def test_complements_sum_to_one(seed, observations):
     """Test that the answers over every assignment of a target set sum to 1, under any evidence."""
     rng = np.random.default_rng(seed)
-    graph = random_graph(rng)
+    graph = random_graph(rng, observations=observations)
     network = compile_graph(graph)
     ids = proposition_ids(graph)
     evidence = random_assignment(rng, ids, 3)
@@ -95,16 +97,17 @@ def _box(rng, network, n_keys):
     return chosen, lows, highs, means
 
 
+@pytest.mark.parametrize("observations", [False, True])
 @SETTINGS
 @given(seed=SEEDS)
-def test_joint_probability_is_multilinear(seed):
+def test_joint_probability_is_multilinear(seed, observations):
     """Test that averaging P(A, E) over independent two-point parameters equals P(A, E) at their means.
 
     That is exactly multilinearity: each parameter enters the joint probability with degree at most
     one, so its expectation passes through. Up to three parameters are varied at once.
     """
     rng = np.random.default_rng(seed)
-    network = compile_graph(random_graph(rng, extremes=False))
+    network = compile_graph(random_graph(rng, extremes=False, observations=observations))
     chosen, lows, highs, means = _box(rng, network, 3)
     values, constraints = _raw_assignment(rng, network)
     assignment = {**values, **constraints}
@@ -113,19 +116,21 @@ def test_joint_probability_is_multilinear(seed):
     at_means = ENGINE.probability(network.with_parameters(means), assignment)
     # Tight enough to catch a nonlinearity of order 1e-10 in a table entry. Measured roundoff on
     # seeds 0-19999: at most 4.4e-16 absolute (44% of atol alone) and 3.7e-14 relative; the worst
-    # case uses 0.99% of the combined allowance atol + rtol * |at_means|.
+    # case uses 0.99% of the combined allowance atol + rtol * |at_means|. With observations, on the
+    # same seeds, the worst case uses 0.46% of it.
     np.testing.assert_allclose(averaged, at_means, rtol=1e-12, atol=1e-15)
 
 
+@pytest.mark.parametrize("observations", [False, True])
 @SETTINGS
 @given(seed=SEEDS)
-def test_point_answer_is_the_predictive_probability(seed):
+def test_point_answer_is_the_predictive_probability(seed, observations):
     """Test that E[P(A, E)] / E[P(E)] over parameter draws equals the point answer P(A | E) at the means.
 
     The exclusive constraints are part of the evidence on both sides.
     """
     rng = np.random.default_rng(seed)
-    graph = random_graph(rng, extremes=False)
+    graph = random_graph(rng, extremes=False, observations=observations)
     network = compile_graph(graph)
     chosen, lows, highs, means = _box(rng, network, 2)
     values, constraints = _raw_assignment(rng, network)
@@ -145,7 +150,8 @@ def test_point_answer_is_the_predictive_probability(seed):
         draws=0,
     ).point
     # Measured roundoff on seeds 0-19999 (19727 pass the filter): at most 5.6e-16 absolute (56% of
-    # atol alone) and 1.3e-14 relative; the worst case uses 0.62% of atol + rtol * |point|.
+    # atol alone) and 1.3e-14 relative; the worst case uses 0.62% of atol + rtol * |point|. With
+    # observations, on the same seeds (19699 pass the filter), the worst case uses 0.61% of it.
     np.testing.assert_allclose(numerator / denominator, point, rtol=1e-12, atol=1e-15)
 
 

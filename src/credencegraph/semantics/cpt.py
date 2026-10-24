@@ -12,6 +12,13 @@ strengths r, s and f, and base b, is true with probability
 so ``b`` is the probability of X when every required premise holds and no support or refuter is
 active. With no parents, ``b`` is the prior.
 
+An observation O of a claim H, the target of one ``observes`` relation of sensitivity s and
+false-pass rate f, has no base and no other parent; it is true with probability
+
+    P(O = 1 | H) = s * H + f * (1 - H)
+
+which, like the table above, is of degree at most one in each parameter.
+
 Every table built here has one axis per parent, in the order given, followed by the child's own
 axis; index 0 on an axis means false and 1 means true.
 """
@@ -134,3 +141,33 @@ def exclusion_table(n_parents: int) -> np.ndarray:
     true = np.ones((2,) * n_parents)
     true[(1,) * n_parents] = 0.0
     return np.stack([1.0 - true, true], axis=-1)
+
+
+def observation_table(sensitivity: float, false_pass: float) -> np.ndarray:
+    """Build the table of an observation from the ``observes`` relation into it.
+
+    Args:
+        sensitivity: ``s``, the probability that the observation is true when the claim is true.
+        false_pass: ``f``, the probability that the observation is true when the claim is false.
+
+    Returns:
+        An array of shape ``(2, 2)`` holding ``P(O = o | H = h)`` at ``[h, o]``.
+    """
+    true = np.array([false_pass, sensitivity], dtype=float)
+    return np.stack([1.0 - true, true], axis=-1)
+
+
+def observation_probability(sensitivity: Real, false_pass: Real, claim: int) -> Real:
+    """Evaluate ``P(O = 1 | H)`` for one value of the claim.
+
+    The same formula as ``observation_table``, in whatever arithmetic the numbers bring.
+
+    Args:
+        sensitivity: ``s``.
+        false_pass: ``f``.
+        claim: The claim's value, 0 or 1.
+
+    Returns:
+        ``s * H + f * (1 - H)``.
+    """
+    return sensitivity * claim + false_pass * (1 - claim)

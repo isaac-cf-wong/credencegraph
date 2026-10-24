@@ -26,17 +26,24 @@ def _credence(rng: np.random.Generator, extremes: bool) -> Beta | float:
     return Beta(float(rng.uniform(0.5, 20.0)), float(rng.uniform(0.5, 20.0)))
 
 
-def random_graph(rng: np.random.Generator, max_variables: int = 12, extremes: bool = True) -> Graph:
+def random_graph(
+    rng: np.random.Generator, max_variables: int = 12, extremes: bool = True, observations: bool = False
+) -> Graph:
     """Build a random graph that compiles to at most ``max_variables`` variables.
 
     Nodes are grouped into equivalence classes first; inferential relations only run from an earlier
     class to a later one, so the graph stays acyclic after merging. Only the first node of a class
     carries a base. Exclusive relations, an annotation node and an annotation relation are added too.
+    With ``observations``, some classes after the first are instead single observation nodes, each
+    the target of one ``observes`` relation from an earlier class and of nothing else; they can
+    still be parents of later classes. Without it, the generator draws exactly what it drew before
+    observations existed, so a seed gives the same graph.
 
     Args:
         rng: The random generator.
         max_variables: The largest number of network variables, constraints included.
-        extremes: Whether bases and strengths may be exactly 0 or 1.
+        extremes: Whether parameters may be exactly 0 or 1.
+        observations: Whether to make some classes observations.
 
     Returns:
         The graph.
@@ -45,7 +52,13 @@ def random_graph(rng: np.random.Generator, max_variables: int = 12, extremes: bo
     n_exclusive = int(rng.integers(0, max_variables - n_classes + 1)) if rng.random() < 0.4 else 0
     graph = Graph()
     classes: list[list[str]] = []
+    observed: set[int] = set()
     for c in range(n_classes):
+        if observations and c > 0 and rng.random() < 0.3:
+            observed.add(c)
+            classes.append([f"n{c}"])
+            graph.add_node(Node(f"n{c}"))
+            continue
         size = 1 + int(rng.random() < 0.15) + int(rng.random() < 0.05)
         ids = [f"n{c}" if k == 0 else f"n{c}_{k}" for k in range(size)]
         classes.append(ids)
@@ -56,6 +69,14 @@ def random_graph(rng: np.random.Generator, max_variables: int = 12, extremes: bo
     density = rng.uniform(0.1, 0.6)
     count = 0
     for child in range(n_classes):
+        if child in observed:
+            parent = classes[int(rng.integers(0, child))]
+            source = parent[int(rng.integers(0, len(parent)))]
+            sensitivity, false_pass = _credence(rng, extremes), _credence(rng, extremes)
+            graph.add_relation(
+                Relation(f"o{child}", "observes", source, f"n{child}", sensitivity=sensitivity, false_pass=false_pass)
+            )
+            continue
         for parent in range(child):
             if rng.random() < density:
                 source = classes[parent][int(rng.integers(0, len(classes[parent])))]

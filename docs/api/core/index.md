@@ -24,10 +24,10 @@ published JSON Schema, available from `credencegraph.core.json_schema()` and
 shipped in the package as `credencegraph/core/schema/graph-1.schema.json`.
 
 The schema covers structure only. Unique ids, relations that name existing
-nodes, the absence of cycles among `requires`, `supports` and `refutes`
-relations, and the ban on an `equivalent` or `exclusive` relation joining a node
-to itself are checked when a document is loaded, because a schema cannot express
-them.
+nodes, the absence of cycles among `requires`, `supports`, `refutes` and
+`observes` relations, and the ban on an `equivalent` or `exclusive` relation
+joining a node to itself are checked when a document is loaded, because a schema
+cannot express them.
 
 A credence is a bare number `p` (a point value with `0 <= p <= 1`) or an object
 `{"alpha": a, "beta": b}` with `a, b > 0`.

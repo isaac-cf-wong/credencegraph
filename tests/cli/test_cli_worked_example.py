@@ -10,6 +10,7 @@ import math
 import shlex
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 
@@ -62,21 +63,26 @@ def entropy(p):
 PRIOR, LIKE_H, LIKE_NOT_H = 0.3, 0.8, 0.2
 
 
+def build_observed(cli, path, sensitivity, false_pass):
+    """Write the page's graph: H and two observations of it through ``observes`` relations."""
+    cli.json("init", path)
+    cli.json("add-node", path, "--id", "H", "--base", str(PRIOR))
+    for node in ("o1", "o2"):
+        cli.json("add-node", path, "--id", node)
+        cli.json(
+            "relate", path, "H", node, "--type", "observes", "--sensitivity", sensitivity, "--false-pass", false_pass
+        )
+    cli.json("check", path)
+
+
 class TestLikelihoodDirection:
-    """Observations encoded as consequences of the hypothesis update it by Bayes' theorem."""
+    """Observations of the hypothesis, through ``observes``, update it by Bayes' theorem."""
 
     @pytest.fixture
     def path(self, cli, tmp_path):
         """Write the graph with a hypothesis and two observations of it."""
-        strength = 1 - (1 - LIKE_H) / (1 - LIKE_NOT_H)
-        assert_close(strength, 0.75)
         path = tmp_path / "obs.json"
-        build(
-            cli,
-            path,
-            [("H", str(PRIOR)), ("o1", str(LIKE_NOT_H)), ("o2", str(LIKE_NOT_H))],
-            [("H", "o1", "supports", str(strength)), ("H", "o2", "supports", str(strength))],
-        )
+        build_observed(cli, path, str(LIKE_H), str(LIKE_NOT_H))
         return path
 
     def test_likelihoods(self, cli, path):
@@ -94,11 +100,50 @@ class TestLikelihoodDirection:
         assert round(one, 4) == 0.6316
         assert round(two, 4) == 0.8727
 
+    def test_unobserved_observation_changes_nothing(self, cli, path):
+        """Test that an observation not passed as evidence leaves H at its prior."""
+        assert_close(point(cli, path, "marginal", "H"), PRIOR)
+        assert_close(
+            point(cli, path, "conditional", "H", "--given", "o2=true"),
+            point(cli, path, "conditional", "H", "--given", "o1=true"),
+        )
+
+    @pytest.mark.parametrize(("sensitivity", "false_pass"), [(0.2, 0.8), (0.5, 0.5)])
+    def test_the_parameters_decide_the_direction(self, cli, tmp_path, sensitivity, false_pass):
+        """Test that s < f lowers H on observation and s = f leaves it."""
+        path = tmp_path / "obs.json"
+        build_observed(cli, path, str(sensitivity), str(false_pass))
+        posterior = point(cli, path, "conditional", "H", "--given", "o1=true")
+        assert_close(posterior, PRIOR * sensitivity / (PRIOR * sensitivity + (1 - PRIOR) * false_pass))
+        assert posterior < PRIOR if sensitivity < false_pass else posterior == pytest.approx(PRIOR, rel=1e-12, abs=0.0)
+
+    @pytest.mark.parametrize(
+        ("sensitivity", "false_pass", "kind"), [(LIKE_H, LIKE_NOT_H, "supports"), (0.2, 0.8, "refutes")]
+    )
+    def test_premise_to_conclusion_encoding_agrees(self, cli, tmp_path, sensitivity, false_pass, kind):
+        """Test that base f with strength 1 - (1 - s)/(1 - f), or 1 - s/f when s < f, gives the same answers."""
+        strength = 1 - (1 - sensitivity) / (1 - false_pass) if kind == "supports" else 1 - sensitivity / false_pass
+        reparameterised, observed = tmp_path / "re.json", tmp_path / "obs.json"
+        build(
+            cli,
+            reparameterised,
+            [("H", str(PRIOR)), ("o1", str(false_pass)), ("o2", str(false_pass))],
+            [("H", "o1", kind, str(strength)), ("H", "o2", kind, str(strength))],
+        )
+        build_observed(cli, observed, str(sensitivity), str(false_pass))
+        for given in (["o1=true"], ["o1=true", "o2=true"], ["o1=true", "o2=false"], ["o1=false"]):
+            flags = [part for value in given for part in ("--given", value)]
+            assert_close(
+                point(cli, reparameterised, "conditional", "H", *flags),
+                point(cli, observed, "conditional", "H", *flags),
+            )
+
     def test_diagnostics_see_the_prior(self, cli, path):
         """Test that the diagnostics describe H before observation, apart from the value of information."""
         findings = {finding["id"]: finding for finding in cli.json("diagnose", path, "--target", "H")["findings"]}
-        for parameter in ("base:o1", "strength:H-supports-o1", "base:o2", "strength:H-supports-o2"):
-            assert findings[f"sensitivity:{parameter}"]["value"] == 0
+        for kind in ("sensitivity", "false_pass"):
+            for relation in ("H-observes-o1", "H-observes-o2"):
+                assert findings[f"sensitivity:{kind}:{relation}"]["value"] == 0
         p_obs = PRIOR * LIKE_H + (1 - PRIOR) * LIKE_NOT_H
         information = entropy(p_obs) - (PRIOR * entropy(LIKE_H) + (1 - PRIOR) * entropy(LIKE_NOT_H))
         assert findings["value-of-information:o1"]["value"] == pytest.approx(information, rel=1e-9, abs=0.0)
@@ -117,6 +162,66 @@ class TestLikelihoodDirection:
         assert round(slope, 3) == 1.108
         assert "value-of-information:o1" not in findings
         assert "value-of-information:o2" in findings
+
+
+class TestIndependentCalibration:
+    """The page's account of what independent per-relation parameters do to the band.
+
+    The engine draws each relation's s and f independently, as the page says; the spread a shared
+    calibration would give is computed here by Monte Carlo, drawing one s and one f per draw.
+    """
+
+    DRAWS = 20000
+
+    def _band_widths(self, cli, tmp_path, given):
+        """Return the log-odds width of the engine's band and of a shared-calibration band.
+
+        Args:
+            cli: The command-line driver.
+            tmp_path: The test's temporary directory.
+            given: The observed value of each observation, in order.
+
+        Returns:
+            The engine's q95 - q05 in log-odds, and the same width with one s and f for every check.
+        """
+        path = tmp_path / "obs.json"
+        cli.json("init", path)
+        cli.json("add-node", path, "--id", "H", "--base", str(PRIOR))
+        flags = []
+        for k, value in enumerate(given):
+            cli.json("add-node", path, "--id", f"o{k}")
+            cli.json(
+                "relate",
+                path,
+                "H",
+                f"o{k}",
+                "--type",
+                "observes",
+                "--sensitivity",
+                "beta:16,4",
+                "--false-pass",
+                "beta:4,16",
+            )
+            flags += ["--given", f"o{k}={'true' if value else 'false'}"]
+        band = cli.json("query", path, "conditional", "H", *flags, "--draws", str(self.DRAWS), "--seed", "1")["band"]
+        engine = logit(band["q95"]) - logit(band["q05"])
+        rng = np.random.default_rng(2)
+        s, f = rng.beta(16, 4, self.DRAWS), rng.beta(4, 16, self.DRAWS)
+        ratio = np.prod([s / f if value else (1 - s) / (1 - f) for value in given], axis=0)
+        shared = np.log(PRIOR / (1 - PRIOR)) + np.log(ratio)
+        low, high = np.quantile(shared, (0.05, 0.95))
+        return engine, high - low
+
+    @pytest.mark.parametrize("n", [2, 5, 10])
+    def test_agreeing_checks_give_a_band_about_sqrt_n_too_narrow(self, cli, tmp_path, n):
+        """Test that n passes of one kind of check give a log-odds band about 1/sqrt(n) of the shared one."""
+        engine, shared = self._band_widths(cli, tmp_path, [True] * n)
+        assert shared / engine == pytest.approx(math.sqrt(n), rel=0.1)
+
+    def test_disagreeing_checks_can_give_a_band_too_wide(self, cli, tmp_path):
+        """Test that one pass and one fail give a wider band than a shared calibration does."""
+        engine, shared = self._band_widths(cli, tmp_path, [True, False])
+        assert engine > 1.1 * shared
 
 
 class TestVeto:

@@ -7,7 +7,7 @@ from dataclasses import replace
 
 import pytest
 
-from credencegraph.core import Beta, Node, Point, Relation, SourceAnchor, ValidationError
+from credencegraph.core import ACYCLIC_TYPES, STRENGTH_TYPES, Beta, Node, Point, Relation, SourceAnchor, ValidationError
 from credencegraph.core.attributes import copy_json
 
 
@@ -197,11 +197,53 @@ class TestRelation:
         """Test that an annotation may join a node to itself."""
         assert Relation("r", "cites", "a", "a").source == "a"
 
-    @pytest.mark.parametrize("rtype", ["requires", "supports", "refutes", "equivalent", "exclusive"])
+    @pytest.mark.parametrize("rtype", ["requires", "supports", "refutes", "equivalent", "exclusive", "observes"])
     def test_inferential_flag(self, rtype):
-        """Test that the five fixed types are inferential."""
+        """Test that the six fixed types are inferential."""
         strength = 0.5 if rtype in {"requires", "supports", "refutes"} else None
-        assert Relation("r", rtype, "a", "b", strength=strength).is_inferential
+        rates = {"sensitivity": 0.9, "false_pass": 0.2} if rtype == "observes" else {}
+        assert Relation("r", rtype, "a", "b", strength=strength, **rates).is_inferential
+
+    def test_observes_is_acyclic_without_a_strength(self):
+        """Test that ``observes`` must stay acyclic and takes no strength."""
+        rel = Relation("r", "observes", "a", "b", sensitivity=0.9, false_pass=0.2)
+        assert "observes" in ACYCLIC_TYPES
+        assert "observes" not in STRENGTH_TYPES
+        assert rel.strength is None
+
+    def test_observes_credences(self):
+        """Test that a float sensitivity or false-pass rate becomes a Point and a Beta is kept."""
+        rel = Relation("r", "observes", "a", "b", sensitivity=Beta(9, 1), false_pass=0.2)
+        assert (rel.sensitivity, rel.false_pass) == (Beta(9, 1), Point(0.2))
+
+    @pytest.mark.parametrize("missing", ["sensitivity", "false_pass"])
+    def test_observes_needs_both_credences(self, missing):
+        """Test that ``observes`` needs a sensitivity and a false-pass rate."""
+        kwargs = {"sensitivity": 0.9, "false_pass": 0.2, missing: None}
+        with pytest.raises(ValidationError, match=f"requires a {missing}"):
+            Relation("r", "observes", "a", "b", **kwargs)
+
+    @pytest.mark.parametrize("value", [1.5, "0.5", True])
+    def test_bad_observes_credence_is_rejected(self, value):
+        """Test that an invalid sensitivity or false-pass rate is rejected."""
+        with pytest.raises(ValidationError):
+            Relation("r", "observes", "a", "b", sensitivity=value, false_pass=0.2)
+        with pytest.raises(ValidationError):
+            Relation("r", "observes", "a", "b", sensitivity=0.9, false_pass=value)
+
+    def test_observes_takes_no_strength(self):
+        """Test that ``observes`` carries no strength."""
+        with pytest.raises(ValidationError, match="must not have a strength"):
+            Relation("r", "observes", "a", "b", strength=0.5, sensitivity=0.9, false_pass=0.2)
+
+    @pytest.mark.parametrize(
+        ("rtype", "strength"), [("supports", 0.5), ("equivalent", None), ("exclusive", None), ("cites", None)]
+    )
+    @pytest.mark.parametrize("name", ["sensitivity", "false_pass"])
+    def test_observes_credences_forbidden_elsewhere(self, rtype, strength, name):
+        """Test that only ``observes`` carries a sensitivity or a false-pass rate."""
+        with pytest.raises(ValidationError, match=f"must not have a {name}"):
+            Relation("r", rtype, "a", "b", strength=strength, **{name: 0.5})
 
     def test_attributes_must_be_json(self):
         """Test that relation attributes are validated like node attributes."""

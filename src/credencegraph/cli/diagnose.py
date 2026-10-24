@@ -302,9 +302,10 @@ def check_command(
     """Check that a graph file is valid and can be compiled for inference, or that it meets a rubric.
 
     The file must parse as a credencegraph graph: known fields, unique ids, relations between existing
-    nodes, no cycle among requires, supports and refutes, and no equivalent or exclusive relation
-    joining a node to itself. Without --rubric it must also compile: every inference
-    variable needs a base, and equivalent nodes need the same one. A graph that does not compile is
+    nodes, no cycle among requires, supports, refutes and observes, and no equivalent or exclusive
+    relation joining a node to itself. Without --rubric it must also compile: every inference
+    variable but an observation needs a base, equivalent nodes need the same one, and an observation
+    takes no base and no other parent. A graph that does not compile is
     reported as a compile-error, with the counts and every finding under details. An unanchored
     variable is reported as a warning and does not fail the check.
 
