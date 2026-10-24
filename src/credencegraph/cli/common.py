@@ -87,7 +87,10 @@ ObservedOption = Annotated[
     bool,
     typer.Option(
         "--observed",
-        help="Also condition on every node's attributes.observed, merged with --given; a conflict is an error.",
+        help=(
+            "Also condition on the attributes.observed of every node that carries one, merged with --given;"
+            " one that takes no part in inference, or a conflict, is an invalid-argument."
+        ),
     ),
 ]
 GraphPath = Annotated[Path, typer.Argument(help="The graph file.", show_default=False)]
