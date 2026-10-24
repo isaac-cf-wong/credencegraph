@@ -235,7 +235,8 @@ def diagnose_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to ea
     With --given, every inference diagnostic is taken given the evidence: stated credences are
     compared with P(X | evidence), and each target's sensitivity, crux, single points of failure,
     failure impact and value of information are those of P(target | evidence). --observed adds the
-    value of every node that carries attributes.observed to the evidence.
+    value of every node that carries attributes.observed to the evidence; each such node must take part
+    in inference, as a --given node must, and one that does not is an invalid-argument.
     """
 
     def action() -> Result:

@@ -164,3 +164,16 @@ def test_defaults_are_the_library_defaults(group):
     assert params(group.commands["diagnose"])["min_supports"].default == DEFAULT_MIN_SUPPORTS
     assert params(group.commands["diagnose"])["max_factor_size"].default == DEFAULT_MAX_FACTOR_SIZE
     assert params(group.commands["verify"])["timeout"].default == DEFAULT_TIMEOUT
+
+
+@pytest.mark.parametrize("name", ["query", "diagnose"])
+def test_observed_states_the_inference_restriction(group, name):
+    """Test that ``--observed`` help and the command's own help say a carrier must take part in inference."""
+    command = group.commands[name]
+    observed = params(command)["observe"]
+    assert observed.opts == ["--observed"]
+    help_text = " ".join(observed.help.split())
+    assert "one that takes no part in inference, or a conflict, is an invalid-argument" in help_text
+    docstring = " ".join(command.help.split())
+    assert "each such node must take part in inference, as a --given node must" in docstring
+    assert "one that does not is an invalid-argument" in docstring

@@ -425,7 +425,8 @@ def query_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to each 
     """Compute a probability from a graph file.
 
     Every kind accepts --given; a marginal or joint query with evidence is the conditional one.
-    --observed adds the value of every node that carries attributes.observed to the evidence.
+    --observed adds the value of every node that carries attributes.observed to the evidence; each such
+    node must take part in inference, as a --given node must, and one that does not is an invalid-argument.
     """
 
     def action() -> Result:
