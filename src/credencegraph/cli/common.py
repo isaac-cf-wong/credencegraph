@@ -20,7 +20,7 @@ from typing import Annotated, Any, NoReturn
 import typer
 
 from credencegraph.core.anchor import SourceAnchor
-from credencegraph.core.credence import Credence, Point
+from credencegraph.core.credence import Credence, format_credence
 from credencegraph.core.credence import parse_credence as core_parse_credence
 from credencegraph.core.errors import CredenceGraphError, CycleError, ValidationError
 from credencegraph.core.graph import Graph
@@ -158,24 +158,6 @@ def translate(error: CredenceGraphError, command: str | None = None) -> CliError
         )
     usage = f"'credencegraph {command} --help'" if command else "'credencegraph --help'"
     return CliError(INVALID_ARGUMENT, str(error), f"check the arguments against {usage}")
-
-
-def format_credence(credence: Credence) -> str:
-    """Write a credence the way it is typed on the command line.
-
-    Args:
-        credence: The credence.
-
-    Returns:
-        ``0.3`` for a ``Point``, ``beta:8,2`` for a ``Beta``.
-    """
-
-    def number(value: float) -> str:
-        return str(int(value)) if value.is_integer() else repr(value)
-
-    if isinstance(credence, Point):
-        return number(credence.p)
-    return f"beta:{number(credence.alpha)},{number(credence.beta)}"
 
 
 def compile_failure(graph: Graph, error: CompileError) -> CliError:

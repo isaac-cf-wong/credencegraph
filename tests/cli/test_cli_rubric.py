@@ -1,7 +1,8 @@
-"""The rubric commands: ``check --rubric --level``, ``coverage``, ``split`` and ``annotate``."""
+"""The rubric commands: ``check --rubric --level [--rubric-credences]``, ``coverage``, ``split`` and ``annotate``."""
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from pathlib import Path
 
@@ -84,15 +85,36 @@ def test_check_without_rubric_is_unchanged(cli, paper):
     assert set(output) == {"command", "path", "nodes", "relations", "warnings"}
 
 
+def test_check_rubric_credences(cli, paper):
+    """Test that --rubric-credences adds its rules, and says so, only when passed."""
+    code, output = run(cli, "check", paper, "--rubric", RUBRIC, "--level", "anchored", "--rubric-credences")
+    assert code == 0
+    assert output["rubric_credences"] is True
+    assert output["violations"] == []
+    text = cli.run("check", paper, "--rubric", RUBRIC, "--level", "anchored", "--rubric-credences").stdout
+    assert "ok at level anchored with rubric credences" in text
+    graph = Graph()
+    graph.add_node(dataclasses.replace(chunk("s-1", SENTENCE), base=0.99))
+    dump(graph, paper)
+    code, output = run(cli, "check", paper, "--rubric", RUBRIC, "--level", "anchored")
+    assert (code, "rubric_credences" in output) == (0, False)
+    code, output = run(cli, "check", paper, "--rubric", RUBRIC, "--level", "anchored", "--rubric-credences")
+    assert code == 1
+    assert [v["id"] for v in output["error"]["details"]["violations"]] == ["credence-not-rubric:s-1"]
+    assert output["error"]["details"]["rubric_credences"] is True
+    assert "with rubric credences" in output["error"]["message"]
+
+
 @pytest.mark.parametrize(
     ("args", "message"),
     [
         (("--level", "typed"), "--level needs --rubric"),
         (("--rubric", RUBRIC, "--level", "strict"), "--level must be one of anchored, typed, assessed"),
+        (("--rubric-credences",), "--rubric-credences needs --rubric"),
     ],
 )
 def test_check_argument_errors(cli, paper, args, message):
-    """Test that --level without --rubric, or an unknown level, is an invalid argument."""
+    """Test that --level or --rubric-credences without --rubric, or an unknown level, is an invalid argument."""
     error = cli.error("check", paper, *args)
     assert error["code"] == "invalid-argument"
     assert message in error["message"]

@@ -219,6 +219,24 @@ def parse_credence(text: str) -> Credence:
     raise ValidationError(msg)
 
 
+def format_credence(credence: Credence) -> str:
+    """Write a credence the way ``parse_credence`` reads it.
+
+    Args:
+        credence: The credence.
+
+    Returns:
+        ``0.3`` for a ``Point``, ``beta:8,2`` for a ``Beta``.
+    """
+
+    def number(value: float) -> str:
+        return str(int(value)) if value.is_integer() else repr(value)
+
+    if isinstance(credence, Point):
+        return number(credence.p)
+    return f"beta:{number(credence.alpha)},{number(credence.beta)}"
+
+
 def _floats(parts: list[str]) -> list[float] | None:
     """Parse each part as a float, or return ``None`` if one is not a number."""
     try:
