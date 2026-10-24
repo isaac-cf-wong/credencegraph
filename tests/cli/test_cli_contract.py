@@ -433,6 +433,32 @@ class TestArgumentHints:
         assert "base" in error["hint"]
         assert error["details"] == {"node": "alice"}
 
+    @pytest.mark.parametrize("args", [("query", "marginal", "claim"), ("diagnose",)])
+    def test_observed_carried_node(self, cli, tmp_path, args):
+        """Test that ``--observed`` refuses an observation on a node that takes no part in inference."""
+        path = write(
+            tmp_path / "g.json",
+            Node("premise", base=0.5),
+            Node("claim", base=0.1),
+            Node("note", kind="note", attributes={"observed": True}),
+            relations=(Relation("r", "supports", "premise", "claim", strength=0.8),),
+        )
+        command, *rest = args
+        error = cli.error(command, path, *rest, "--observed")
+        assert error["code"] == "invalid-argument"
+        assert error["message"].startswith("--observed 'note' takes no part in inference")
+        assert error["details"] == {"node": "note"}
+
+    def test_observed_carried_node_documented(self):
+        """Test that the docs on ``--observed`` state the refusal of a node that takes no part in inference."""
+        paragraph = DOCS.read_text(encoding="utf-8").split("**Recorded observations.**", 1)[1].split("\n\n", 1)[0]
+        prose = " ".join(paragraph.split())
+        assert "Each such node must take part in inference" in prose
+        assert (
+            "one with no base and no inferential relation, such as a node only annotations reach, is an `invalid-argument`"
+            in prose
+        )
+
     def test_equivalent_nodes_set_apart(self, cli, tmp_path):
         """Test that setting two equivalent nodes to different values is refused, naming ``--set``."""
         path = write(
