@@ -278,10 +278,10 @@ engine requires both on every `observes` relation, refuses a `strength` on one,
 and refuses a `sensitivity` or `false_pass` on any other type. Its target is an
 observation, whose probability the relation alone sets: it has no `base` and no
 other relation into it (otherwise the graph is a `compile-error`). The
-`supports` form is the check edge of `--rubric-credences`: the check node's
-`base` is the check type's `false_pass` and the strength is
-`1 - (1 - E[sensitivity]) / (1 - E[false_pass])`, which gives a pass the same
-probabilities at the means of the two credences. With either form, a check edge
+`observes` form is the check edge, the one `--rubric-credences` allows. The
+`supports` form is its equivalent at the means of the two credences: the check
+node's `base` is the check type's `false_pass` and the strength is
+`1 - (1 - E[sensitivity]) / (1 - E[false_pass])`. With either form, a relation
 out of a node to a check node backs that node's verdict (`no-evidence`).
 
 The graph stores no evidence values, so a check node records its result as
@@ -576,8 +576,8 @@ The assessment is `attributes.assessment`, one of:
 
 - `unassessed`: A node of an `assess = true` type has no `assessment`.
 - `no-evidence`: A `holds`, `fails` or `undetermined` verdict with no relation
-  into the node from an evidence node, and no check edge (`supports`) or
-  `observes` relation out of it to a check node.
+  into the node from an evidence node, and no check edge (`observes`) or
+  `supports` relation out of it to a check node.
 - `missing-reason`: A `not_assessed` assessment without a non-empty `reason`.
 - `compile-error`: The graph does not compile; the details are those of today's
   `compile-error`.
@@ -598,26 +598,26 @@ unaffected unless the flag is passed.
 
 A **check node** is an evidence node whose type is a check type of the rubric
 and that carries a check record, an object, in `attributes.check`; the record's
-`result` is `passed`, `failed` or `error`. A **check edge** is a `supports`
+`result` is `passed`, `failed` or `error`. A **check edge** is an `observes`
 relation from a document or analyst node to a check node: the check was run on
-that node. The check node's `base` is its type's `false_pass` and the check
-edge's strength is `1 - (1 - E[sensitivity]) / (1 - E[false_pass])`, so a pass
-has probability `E[false_pass]` when the checked node is false and
-`E[sensitivity]` when it is true.
+that node. The check edge's `sensitivity` and `false_pass` are its check type's,
+so a pass has probability `E[false_pass]` when the checked node is false and
+`E[sensitivity]` when it is true, and the check node has no `base`.
 
 - `credence-not-rubric`: A document or analyst node has a `base` other than its
   type's, or an analyst node one other than `premises.base` when the rubric has
   `[premises]`; a `requires` between document or analyst nodes has a strength
   other than `premises.strength` from an analyst node (when the rubric has
   `[premises]`), or else its target type's edge-rule strength (an edge rule of
-  `supports`, or none, gives no strength to match); a check node has a `base`
-  other than its type's `false_pass`; or a check edge has a strength other than
-  the one above. A node without a `base` is not reported here.
+  `supports`, or none, gives no strength to match); a check node has a `base`;
+  or a check edge has a `sensitivity` or `false_pass` other than its check
+  type's. A document or analyst node without a `base` is not reported here.
 - `relation-not-allowed`: An inferential relation touching a document, analyst
   or check node that is neither a `requires` from a document or analyst node to
   another, nor a check edge. This covers `supports` and `refutes` between
   document or analyst nodes, any `equivalent` or `exclusive` touching one, any
-  relation from an evidence node to one, and any relation out of a check node.
+  relation from an evidence node to one, any relation out of a check node, and a
+  `supports` into one, though `no-evidence` accepts it.
 - `check-unobserved-invalid`: `attributes.observed` is on a node that is not a
   check node; or a check node's `attributes.observed` disagrees with its result:
   it must be `true` for `passed`, `false` for `failed`, and absent for `error`;

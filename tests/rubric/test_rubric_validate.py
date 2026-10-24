@@ -427,7 +427,7 @@ def _check_node(**changes) -> Node:
 
 @pytest.mark.parametrize("form", ["supports", "observes"])
 def test_check_edge_is_evidence(form):
-    """Test that a check edge or an observes relation out of a node to a check node backs its verdict."""
+    """Test that a check edge (observes), or the supports form no-evidence still accepts, backs a verdict."""
     result, claim, _, rests, _ = assessed_graph()
     if form == "supports":
         check = _check_node()

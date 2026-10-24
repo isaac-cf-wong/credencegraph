@@ -339,8 +339,8 @@ def check_command(
     With --rubric, the graph is checked against the rubric at --level instead, and every violation
     is reported as a rubric-violation. The graph is compiled only at the assessed level.
     --rubric-credences adds the rules that every base and strength is the rubric's, that document and
-    analyst nodes are joined only by requires and by check edges, and that observations sit only on
-    check nodes and agree with their results.
+    analyst nodes are joined only by requires and by observes check edges, and that observations sit
+    only on check nodes and agree with their results.
     """
 
     def action() -> Result:

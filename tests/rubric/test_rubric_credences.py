@@ -37,12 +37,16 @@ def extracted_graph() -> list:
         "c-1",
         "recompute-numbers",
         "recompute-numbers on s-1: passed",
-        base=Beta(1, 9),
         attributes={"origin": "evidence", "check": {"result": "passed"}, "observed": True},
     )
     assumed = Relation("ra", "requires", "a-1", "s-2", strength=Beta(9, 1))
-    edge = Relation("ce", "supports", "s-1", "c-1", strength=RECOMPUTE.edge_strength)
+    edge = check_edge("s-1", "c-1", RECOMPUTE)
     return [result, claim, premise, check, rests, assumed, edge]
+
+
+def check_edge(source: str, target: str, check, relation_id: str = "ce") -> Relation:
+    """The check edge of a check type: an observes relation carrying the check's sensitivity and false-pass rate."""
+    return Relation(relation_id, "observes", source, target, sensitivity=check.sensitivity, false_pass=check.false_pass)
 
 
 def credence_violations(graph: Graph, level: str = "typed") -> list[str]:
@@ -61,9 +65,8 @@ def test_baseline_passes():
         assert credence_violations(build(*extracted_graph()), level) == []
 
 
-def test_edge_strength_gives_the_check_its_sensitivity_and_false_pass():
-    """Test the check edge's strength: a pass is E[sensitivity] likely on a true target, E[false_pass] on a false one."""
-    assert RECOMPUTE.edge_strength.p == pytest.approx(1 - 0.05 / 0.9, rel=1e-15)
+def test_check_edge_gives_the_check_its_sensitivity_and_false_pass():
+    """Test the check edge: a pass is E[sensitivity] likely on a true target, E[false_pass] on a false one."""
     graph = build(*extracted_graph())
     network = compile_graph(graph)
     for value, expected in ((True, 19 / 20), (False, 1 / 10)):
@@ -117,18 +120,41 @@ def test_requires_into_a_type_without_a_requires_rule():
     assert credence_violations(build(*parts, method, relation), "anchored") == ["credence-not-rubric:rm"]
 
 
-def test_check_base_not_its_false_pass():
-    """Test that a check node whose base is not its check type's false_pass is reported."""
+@pytest.mark.parametrize("base", [Beta(1, 9), Beta(19, 1)], ids=["its-false-pass", "another"])
+def test_check_node_with_a_base(base):
+    """Test that a check node with any base is reported, even its false_pass: the check edge sets its probability."""
     parts = extracted_graph()
-    parts[3] = Node(**{**_fields(parts[3]), "base": Beta(19, 1)})
+    parts[3] = Node(**{**_fields(parts[3]), "base": base})
     assert credence_violations(build(*parts)) == ["credence-not-rubric:c-1"]
 
 
-def test_check_edge_strength_not_the_checks():
-    """Test that a check edge with a strength other than its check type's is reported."""
+@pytest.mark.parametrize(
+    "credences",
+    [{"sensitivity": Beta(9, 1)}, {"false_pass": Beta(1, 19)}, {"sensitivity": 0.95, "false_pass": 0.1}],
+    ids=["sensitivity", "false-pass", "points-at-the-means"],
+)
+def test_check_edge_credences_not_the_checks(credences):
+    """Test that a check edge with a sensitivity or false_pass other than its check type's is reported."""
     parts = extracted_graph()
-    parts[6] = Relation("ce", "supports", "s-1", "c-1", strength=0.9)
+    fields = {"sensitivity": RECOMPUTE.sensitivity, "false_pass": RECOMPUTE.false_pass, **credences}
+    parts[6] = Relation("ce", "observes", "s-1", "c-1", **fields)
     assert credence_violations(build(*parts)) == ["credence-not-rubric:ce"]
+
+
+def test_supports_check_edge_is_not_the_rubrics():
+    """Test that the supports form of a check edge, which no-evidence accepts, is not allowed by the rules.
+
+    The supports form puts the false-pass rate on the check node's base, so that is reported too.
+    """
+    parts = extracted_graph()
+    parts[3] = Node(**{**_fields(parts[3]), "base": RECOMPUTE.false_pass})
+    strength = 1 - (1 - RECOMPUTE.sensitivity.mean) / (1 - RECOMPUTE.false_pass.mean)
+    parts[6] = Relation("ce", "supports", "s-1", "c-1", strength=strength)
+    graph = build(*parts)
+    assert credence_violations(graph) == ["credence-not-rubric:c-1", "relation-not-allowed:ce"]
+    for value, expected in ((True, 19 / 20), (False, 1 / 10)):
+        point = conditional(compile_graph(graph), {"c-1": True}, {"s-1": value}, draws=0).point
+        assert point == pytest.approx(expected, rel=1e-12)
 
 
 # --- relation-not-allowed ---------------------------------------------------------------------------
@@ -159,7 +185,7 @@ def test_evidence_supporting_a_document_node():
 
 
 def test_check_type_without_record_is_not_a_check_node():
-    """Test that a check edge needs a check record on its target: without one it is a supports like any other."""
+    """Test that a check edge needs a check record on its target: without one it is an observes like any other."""
     parts = extracted_graph()
     attributes = {"origin": "evidence"}
     parts[3] = Node(**{**_fields(parts[3]), "attributes": attributes})
@@ -256,6 +282,16 @@ def test_without_the_flag_nothing_changes():
         ]
 
 
+def test_documented_check_edge_is_observes():
+    """Test that the documentation names observes as the check edge the rules allow, and supports as accepted."""
+    text = (Path(__file__).parents[2] / "docs" / "verbatim-ingestion.md").read_text(encoding="utf-8")
+    flat = " ".join(text.split())
+    section = flat.split("**`--rubric-credences`**", 1)[1].split("## ", 1)[0]
+    assert "A **check edge** is an `observes` relation from a document or analyst node to a check node" in section
+    assert "a `supports` into one, though `no-evidence` accepts it" in section
+    assert "no check edge (`observes`) or `supports` relation out of it to a check node" in flat
+
+
 def test_every_code_is_documented():
     """Test that the rules' codes are exactly the ones the documentation lists under the flag."""
     text = (Path(__file__).parents[2] / "docs" / "verbatim-ingestion.md").read_text(encoding="utf-8")
@@ -282,7 +318,8 @@ INJECTIONS = {
     "base": "credence-not-rubric",
     "strength": "credence-not-rubric",
     "check-base": "credence-not-rubric",
-    "check-edge-strength": "credence-not-rubric",
+    "check-edge-credences": "credence-not-rubric",
+    "supports-check-edge": "relation-not-allowed",
     "supports": "relation-not-allowed",
     "refutes": "relation-not-allowed",
     "equivalent": "relation-not-allowed",
@@ -305,6 +342,11 @@ def expected_base(kind: str, origin: str):
 def add(graph: Graph, rtype: str, source: str, target: str, strength=None) -> None:
     """Add a relation, numbered in the order relations are added."""
     graph.add_relation(Relation(f"r{len(graph.relations)}", rtype, source, target, strength=strength))
+
+
+def add_check_edge(graph: Graph, source: str, target: str, check) -> None:
+    """Add a check edge, numbered in the order relations are added."""
+    graph.add_relation(check_edge(source, target, check, f"r{len(graph.relations)}"))
 
 
 def random_extracted_graph(rng: np.random.Generator, injection: str | None) -> Graph:
@@ -349,8 +391,8 @@ def random_extracted_graph(rng: np.random.Generator, injection: str | None) -> G
         attributes = {"origin": "evidence", "check": {"result": result}}
         if OBSERVED[result] is not None:
             attributes["observed"] = OBSERVED[result]
-        graph.add_node(Node(f"c{k}", check.name, base=check.false_pass, attributes=attributes))
-        add(graph, "supports", nodes[int(rng.integers(0, count))].id, f"c{k}", check.edge_strength)
+        graph.add_node(Node(f"c{k}", check.name, attributes=attributes))
+        add_check_edge(graph, nodes[int(rng.integers(0, count))].id, f"c{k}", check)
     if injection is not None:
         inject(graph, [node.id for node in nodes], rng, injection)
     return graph
@@ -369,13 +411,24 @@ def inject(graph: Graph, ids: list[str], rng: np.random.Generator, injection: st
     elif injection == "evidence-supports":
         graph.add_node(Node("e", "check", base=high, attributes={"origin": "evidence"}))
         add(graph, "supports", "e", j, high)
-    elif injection in ("check-base", "check-edge-strength", "observed-disagrees", "out-of-check"):
+    elif injection in (
+        "check-base",
+        "check-edge-credences",
+        "supports-check-edge",
+        "observed-disagrees",
+        "out-of-check",
+    ):
         check = RUBRIC.checks["recompute-numbers"]
         observed = injection != "observed-disagrees"
         attributes = {"origin": "evidence", "check": {"result": "passed"}, "observed": observed}
-        base = high if injection == "check-base" else check.false_pass
-        graph.add_node(Node("c", check.name, base=base, attributes=attributes))
-        add(graph, "supports", i, "c", high if injection == "check-edge-strength" else check.edge_strength)
+        graph.add_node(Node("c", check.name, base=high if injection == "check-base" else None, attributes=attributes))
+        if injection == "check-edge-credences":
+            relation_id = f"r{len(graph.relations)}"
+            graph.add_relation(Relation(relation_id, "observes", i, "c", sensitivity=high, false_pass=check.false_pass))
+        elif injection == "supports-check-edge":
+            add(graph, "supports", i, "c", high)
+        else:
+            add_check_edge(graph, i, "c", check)
         if injection == "out-of-check":
             add(graph, "supports", "c", j, high)
 
