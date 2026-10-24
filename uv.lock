@@ -272,7 +272,7 @@ dev = [
     { name = "hypothesis", specifier = ">=6.170.5" },
     { name = "jsonschema", specifier = ">=4.26.0" },
     { name = "mutmut", specifier = ">=3.8.0" },
-    { name = "prek", specifier = ">=0.5.6" },
+    { name = "prek", specifier = ">=0.5.7" },
     { name = "pylatexenc", specifier = ">=2.11" },
     { name = "pypdfium2", specifier = ">=5.14.0" },
     { name = "pytest", specifier = ">=9.1.1" },
