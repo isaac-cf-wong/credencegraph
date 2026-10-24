@@ -43,27 +43,26 @@ this on small graphs, along with how to encode a null result.
 
 ## Which way an observation points
 
-Relations read from premise to conclusion: `E --supports--> H` says E is a
+Most relations read from premise to conclusion: `E --supports--> H` says E is a
 reason for H. Empirical evidence is often stated the other way, as how likely
 the observation is under the hypothesis and under its negation, P(obs | H) and
-P(obs | ¬H). That direction is already expressible, with the hypothesis as the
-premise and the observation as the conclusion:
+P(obs | ¬H). The `observes` relation takes it in that direction, from the
+hypothesis to the observation, with those two probabilities as its parameters:
+the **sensitivity** s = P(obs | H) and the **false-pass rate** f = P(obs | ¬H).
+The observation is then true with probability s · H + f · (1 − H). It takes no
+base and no other relation into it: the `observes` relation alone sets its
+probability.
 
-- when P(obs | H) ≥ P(obs | ¬H), `H --supports--> obs` with the observation's
-  base set to P(obs | ¬H) and strength 1 − (1 − P(obs | H)) / (1 − P(obs | ¬H));
-- when P(obs | H) < P(obs | ¬H), `H --refutes--> obs` with the base set to P(obs
-  | ¬H) and strength 1 − P(obs | H) / P(obs | ¬H).
-
-For a hypothesis with prior 0.3 and two independent observations, each with
-P(obs | H) = 0.8 and P(obs | ¬H) = 0.2, the base is 0.2 and the strength 0.75:
+For a hypothesis with prior 0.3 and two independent observations, each with s =
+0.8 and f = 0.2:
 
 ```bash
 credencegraph init obs.json
 credencegraph add-node obs.json --id H --base 0.3
-credencegraph add-node obs.json --id o1 --base 0.2
-credencegraph add-node obs.json --id o2 --base 0.2
-credencegraph relate obs.json H o1 --type supports --strength 0.75
-credencegraph relate obs.json H o2 --type supports --strength 0.75
+credencegraph add-node obs.json --id o1
+credencegraph add-node obs.json --id o2
+credencegraph relate obs.json H o1 --type observes --sensitivity 0.8 --false-pass 0.2
+credencegraph relate obs.json H o2 --type observes --sensitivity 0.8 --false-pass 0.2
 credencegraph query obs.json conditional H --given o1=true                # 0.6316
 credencegraph query obs.json conditional H --given o1=true --given o2=true  # 0.8727
 credencegraph query obs.json conditional H --given o1=true --given o2=false # 0.3
@@ -73,7 +72,40 @@ These are Bayes' theorem with a likelihood ratio of 4 per observation: 0.3 · 0.
 / (0.3 · 0.8 + 0.7 · 0.2) = 0.6316, and with both observations 0.192 / 0.220 =
 0.8727. One observation for and one against cancel, leaving the prior. The two
 observations are independent given H, which is what two measurements of the same
-quantity usually are.
+quantity usually are. An observation that is not passed as evidence, such as a
+check that was not run, is summed out and leaves every answer as it was.
+
+The same relation covers an observation that counts against the hypothesis: with
+s < f, observing it lowers H, and with s = f it leaves H alone. Which way it
+points is decided by the parameters, not by the choice of relation type. That
+matters once s and f are uncertain. A check whose sensitivity and false-pass
+rate were measured on a calibration set has a `Beta` credence for each,
+`--sensitivity beta:16,4 --false-pass beta:4,16`, and the band of every answer
+draws them independently. The same Bayes update can also be written in
+premise-to-conclusion relations, `H --supports--> obs` with the observation's
+base set to f and strength 1 − (1 − s) / (1 − f), or `H --refutes--> obs` with
+strength 1 − s / f when s < f. That encoding gives the same point answers, but
+its base and strength are functions of both s and f, so they cannot be drawn as
+independent credences, and whether it needs `supports` or `refutes` depends on
+which of s and f is larger, which is itself uncertain.
+
+**Each relation's s and f are its own.** Every parameter is independent of every
+other, and that includes the sensitivity and false-pass rate of two `observes`
+relations that come from the same kind of check with the same calibration. The
+band therefore draws each check's sensitivity apart from the others', when in
+fact a kind of check that is less sensitive than its calibration suggests is
+less sensitive every time it is used. When several observations from one kind of
+check agree, all passing or all failing, the band is too narrow. In log-odds, n
+agreeing checks add n independent log likelihood ratios, whose spreads add in
+variance, where a shared calibration adds one ratio n times, whose spread adds
+in standard deviation, so the band is about √n times narrower than a shared
+calibration would make it. When the observations disagree, a shared calibration
+partly cancels between a pass and a fail, and the band can be too wide instead.
+Either way it is not the spread of a shared calibration. The point answer is
+unaffected, since it depends only on the means. Parameters shared between
+relations are not supported: a shared parameter would enter a joint probability
+with a degree above one, and the point answer would no longer be exact at the
+means.
 
 The diagnostics need the observations passed as evidence. Without it they
 describe the graph before anything is observed, so

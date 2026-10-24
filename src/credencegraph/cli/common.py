@@ -12,6 +12,7 @@ import difflib
 import json
 import os
 import tempfile
+from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -24,6 +25,7 @@ from credencegraph.core.credence import Credence, format_credence
 from credencegraph.core.credence import parse_credence as core_parse_credence
 from credencegraph.core.errors import CredenceGraphError, CycleError, ValidationError
 from credencegraph.core.graph import Graph
+from credencegraph.core.relation import ACYCLIC_TYPES, OBSERVES
 from credencegraph.core.serialization import credence_to_json, dumps, loads
 from credencegraph.diagnostics.records import render_item
 from credencegraph.diagnostics.structure import missing_parameters
@@ -68,12 +70,14 @@ ERROR_CODES = (
     VERIFICATION_FAILED,
 )
 
-# Why no world satisfies the exclusive relations. If every base and strength lies strictly between 0
-# and 1, the world in which every proposition is false has positive probability and satisfies every
-# exclusive relation, so a probability of zero needs a parameter at exactly 0 or 1.
+# Why no world satisfies the exclusive relations. If every base, strength, sensitivity and false-pass
+# rate lies strictly between 0 and 1, the world in which every proposition is false has positive
+# probability and satisfies every exclusive relation, so a probability of zero needs a parameter at
+# exactly 0 or 1.
 IMPOSSIBLE_GRAPH_HINT = (
-    "no world satisfies every exclusive relation under the graph's credences, which needs some base or "
-    "strength of exactly 0 or 1; soften one of those or remove an exclusive relation"
+    "no world satisfies every exclusive relation under the graph's credences, which needs some base, "
+    "strength, sensitivity or false-pass rate of exactly 0 or 1; soften one of those or remove an "
+    "exclusive relation"
 )
 
 CREDENCE_FORMS = "a probability such as 0.3, or beta:ALPHA,BETA such as beta:8,2"
@@ -143,7 +147,8 @@ def translate(error: CredenceGraphError, command: str | None = None) -> CliError
         return CliError(
             CYCLE,
             str(error),
-            "requires, supports and refutes relations must not form a cycle; drop or reverse one of the relations named",
+            "requires, supports, refutes and observes relations must not form a cycle; "
+            "drop or reverse one of the relations named",
             {"cycle": list(error.cycle), "relations": list(error.relations)},
         )
     if isinstance(error, ZeroProbabilityError):
@@ -168,13 +173,22 @@ def compile_failure(graph: Graph, error: CompileError) -> CliError:
         error: The compiler's error, reported as is when the graph shows no missing or conflicting base.
 
     Returns:
-        A ``compile-error`` naming the nodes without a base and the equivalent nodes whose bases
-        conflict, with ``details.errors`` (the missing-parameter findings) and
-        ``details.conflicting_bases``.
+        A ``compile-error`` naming the nodes without a base, the equivalent nodes whose bases
+        conflict and the observations with a base or another parent, with ``details.errors`` (the
+        missing-parameter findings) and ``details.conflicting_bases``.
     """
     missing = missing_parameters(graph)
+    sets = inference_sets(graph)
+    root = {node_id: representative for representative, ids in sets.items() for node_id in ids}
+    into = Counter(root[r.target] for r in graph.relations.values() if r.type in ACYCLIC_TYPES)
+    observed = dict.fromkeys(root[r.target] for r in graph.relations.values() if r.type == OBSERVES)
+    improper = [
+        representative
+        for representative in observed
+        if into[representative] > 1 or any(graph.nodes[node_id].base is not None for node_id in sets[representative])
+    ]
     conflicts = []
-    for ids in inference_sets(graph).values():
+    for ids in sets.values():
         carriers = [node_id for node_id in ids if graph.nodes[node_id].base is not None]
         conflicts.extend(
             (carriers[0], other) for other in carriers[1:] if graph.nodes[other].base != graph.nodes[carriers[0]].base
@@ -199,6 +213,12 @@ def compile_failure(graph: Graph, error: CompileError) -> CliError:
         nodes = ", ".join(repr(finding.nodes[0]) for finding in missing)
         messages.append(f"inference variables without a base: {nodes}")
         hints.append("set a base on each node listed in the graph file; there is no default credence")
+    if improper:
+        messages.append(f"observations with a base or another parent: {', '.join(map(repr, improper))}")
+        hints.append(
+            "an observes relation alone sets an observation's probability; remove the base of each observation "
+            "listed, and every other requires, supports, refutes or observes relation into it"
+        )
     if not messages:
         return CliError(
             COMPILE_ERROR,

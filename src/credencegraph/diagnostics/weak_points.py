@@ -6,7 +6,7 @@ freshly compiled network). E is the evidence passed as ``evidence``, node ids an
 values; with none, the question is about ``P(T = true)``, the graph before anything is observed.
 
 **Sensitivity.** Every joint probability of the network is multilinear in its parameters: each
-``base`` and ``strength`` enters with degree at most one. With no ``exclusive`` constraint, ``P(T)``
+``base``, ``strength``, ``sensitivity`` and ``false_pass`` enters with degree at most one. With no ``exclusive`` constraint, ``P(T)``
 is itself such a joint probability, a straight line in each parameter θ, so
 
     dP(T)/dθ = P(T | θ = 1) - P(T | θ = 0)
@@ -46,8 +46,8 @@ from credencegraph.diagnostics.records import (
 from credencegraph.inference.elimination import VariableElimination
 from credencegraph.inference.engine import Engine, Query
 from credencegraph.inference.errors import ZeroProbabilityError
-from credencegraph.semantics.cpt import Term, true_probability
-from credencegraph.semantics.network import PROPOSITION, Network, ParameterKey, Variable
+from credencegraph.semantics.cpt import Term, observation_probability, true_probability
+from credencegraph.semantics.network import PROPOSITION, Network, ParameterKey, Variable, is_observation
 
 # A convention of this package, not something the model determines: a premise whose failure leaves the
 # target below a tenth of its own probability, an order of magnitude down, sinks it. The threshold is a
@@ -170,6 +170,10 @@ def derivatives(
     return slopes
 
 
+# How a relation's parameter is named in a finding's message, by its kind.
+_PARAMETER_NAMES = {"strength": "strength", "sensitivity": "sensitivity", "false_pass": "false-pass rate"}
+
+
 def _subject(network: Network, key: ParameterKey) -> tuple[str, tuple[str, ...], tuple[str, ...]]:
     """Describe the node or relation that carries a parameter.
 
@@ -182,12 +186,13 @@ def _subject(network: Network, key: ParameterKey) -> tuple[str, tuple[str, ...],
     """
     if key.kind == "base":
         return f"the base of {key.id!r}", (key.id,), ()
+    name = _PARAMETER_NAMES[key.kind]
     for variable in network.variables:
         for link in variable.links:
             if link.relation == key.id:
                 source = network.variables[link.parent].name
-                return f"the strength of {link.type} relation {key.id!r}", (source, variable.name), (key.id,)
-    return f"the strength of relation {key.id!r}", (), (key.id,)  # pragma: no cover - every strength has a link
+                return f"the {name} of {link.type} relation {key.id!r}", (source, variable.name), (key.id,)
+    return f"the {name} of relation {key.id!r}", (), (key.id,)  # pragma: no cover - every parameter has a link
 
 
 def _sd(credence: Credence) -> float:
@@ -236,6 +241,11 @@ def _cancels(network: Network, variable: Variable, key: ParameterKey, fixed: Map
 
     def entries(theta: int, parents: list[int]) -> Fraction:
         given = {**values, key: Fraction(theta)}
+        if is_observation(variable):
+            relation = variable.links[0].relation
+            return observation_probability(
+                given[ParameterKey("sensitivity", relation)], given[ParameterKey("false_pass", relation)], parents[0]
+            )
         terms = [
             Term(variable.parents.index(link.parent), link.type, given[ParameterKey("strength", link.relation)])
             for link in variable.links

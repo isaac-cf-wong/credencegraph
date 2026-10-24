@@ -35,11 +35,12 @@ def _both(network, query):
     return answers
 
 
+@pytest.mark.parametrize("observations", [False, True])
 @pytest.mark.parametrize("seed", range(300))
-def test_elimination_matches_enumeration(seed):
+def test_elimination_matches_enumeration(seed, observations):
     """Test that both engines agree on marginals, joints, conditionals and interventions."""
     rng = np.random.default_rng(seed)
-    graph = random_graph(rng)
+    graph = random_graph(rng, observations=observations)
     network = compile_graph(graph)
     assert len(network) <= 12
     ids = proposition_ids(graph)
@@ -60,15 +61,23 @@ def test_elimination_matches_enumeration(seed):
         np.testing.assert_allclose(answer, reference, rtol=1e-12, atol=0.0)
 
 
+@pytest.mark.parametrize("observations", [False, True])
 @pytest.mark.parametrize("seed", range(50))
-def test_probability_of_nothing_is_one(seed):
+def test_probability_of_nothing_is_one(seed, observations):
     """Test that summing every table out gives total probability 1 without constraints."""
     rng = np.random.default_rng(seed)
-    network = compile_graph(random_graph(rng))
+    network = compile_graph(random_graph(rng, observations=observations))
     if network.constraints:
         return
     for engine in (ENUMERATION, ELIMINATION):
         np.testing.assert_allclose(engine.probability(network, {}), 1.0, rtol=1e-12, atol=0.0)
+
+
+def test_random_graphs_with_observations_hold_observations():
+    """Test that the observation case of the engine comparison is not vacuous."""
+    graphs = [random_graph(np.random.default_rng(seed), observations=True) for seed in range(300)]
+    observed = [sum(r.type == "observes" for r in graph.relations.values()) for graph in graphs]
+    assert sum(count > 0 for count in observed) >= 200
 
 
 def _star(n_parents):

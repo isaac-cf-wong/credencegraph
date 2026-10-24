@@ -133,13 +133,18 @@ def _smallest(count: int, clears: Callable[[tuple[int, ...]], bool]) -> tuple[li
     return [], [], tried
 
 
+# The parameters a relation may carry, as named in the ids of ``_extreme_parameters``.
+_RELATION_PARAMETERS = ("strength", "sensitivity", "false_pass")
+
+
 def _rebuilt(graph: Graph, removed: frozenset[str] = frozenset(), softened: frozenset[str] = frozenset()) -> Graph:
-    """Copy a graph without some relations, and with some bases or strengths moved to 0.5.
+    """Copy a graph without some relations, and with some of its parameters moved to 0.5.
 
     Args:
         graph: The graph.
         removed: The ids of the relations to leave out.
-        softened: The parameters to move to 0.5, as ``base:<node>`` or ``strength:<relation>``.
+        softened: The parameters to move to 0.5, as ``base:<node>``, or ``strength:<relation>``,
+            ``sensitivity:<relation>`` or ``false_pass:<relation>``.
 
     Returns:
         The copy.
@@ -149,27 +154,30 @@ def _rebuilt(graph: Graph, removed: frozenset[str] = frozenset(), softened: froz
         copy.add_node(replace(node, base=Point(0.5)) if f"base:{node.id}" in softened else node)
     for relation in graph.relations.values():
         if relation.id not in removed:
-            soft = f"strength:{relation.id}" in softened
-            copy.add_relation(replace(relation, strength=Point(0.5)) if soft else relation)
+            soft = {name: Point(0.5) for name in _RELATION_PARAMETERS if f"{name}:{relation.id}" in softened}
+            copy.add_relation(replace(relation, **soft))
     return copy
 
 
 def _extreme_parameters(graph: Graph) -> list[dict[str, object]]:
-    """List the bases and strengths that are exactly 0 or 1.
+    """List the parameters that are exactly 0 or 1.
 
     Args:
         graph: The graph.
 
     Returns:
-        ``{"id": "base:<node>" or "strength:<relation>", "value": ...}`` for each, in graph order.
+        ``{"id": "base:<node>" or "<parameter>:<relation>", "value": ...}`` for each, in graph order,
+        the parameter of a relation being its ``strength``, ``sensitivity`` or ``false_pass``.
     """
     extreme: list[dict[str, object]] = []
     for node in graph.nodes.values():
         if isinstance(node.base, Point) and node.base.p in {0.0, 1.0}:
             extreme.append({"id": f"base:{node.id}", "value": node.base.p})
     for relation in graph.relations.values():
-        if isinstance(relation.strength, Point) and relation.strength.p in {0.0, 1.0}:
-            extreme.append({"id": f"strength:{relation.id}", "value": relation.strength.p})
+        for name in _RELATION_PARAMETERS:
+            credence = getattr(relation, name)
+            if isinstance(credence, Point) and credence.p in {0.0, 1.0}:
+                extreme.append({"id": f"{name}:{relation.id}", "value": credence.p})
     return extreme
 
 
@@ -263,7 +271,7 @@ def _impossible(  # noqa: PLR0913, PLR0917 - the command's whole context
     this same command, of the same kind, with something changed: a flag is named when its values fail
     on their own (or all flags, when only together they fail), an ``exclusive`` relation when the
     passed values make both its propositions true and removing it makes the command succeed, values
-    to drop when dropping them does, and bases or strengths when moving them off 0 and 1 does. A drop
+    to drop when dropping them does, and parameters when moving them off 0 and 1 does. A drop
     that leaves the command ill-formed, such as an ``intervene`` query without ``--set``, is no remedy.
     Drops, moves and the removal of one relation are tried separately, never combined, and a search
     that stops at ``SEARCH_BUDGET`` sets says so and what it tried, so no remedy found does not read
@@ -280,7 +288,7 @@ def _impossible(  # noqa: PLR0913, PLR0917 - the command's whole context
     Returns:
         A ``zero-probability`` error. Its details hold ``drop_any_one_of`` (dropping any one of those
         values makes the command succeed) or ``drop_all_of`` (dropping all of them does),
-        ``move_any_one_of`` or ``move_all_of`` for the bases and strengths at 0 or 1 whose move does,
+        ``move_any_one_of`` or ``move_all_of`` for the parameters at 0 or 1 whose move does,
         ``extreme_parameters`` for those parameters with their values, and ``exclusive_relation`` when
         removing one relation the passed values break does. Each list is empty when no such remedy
         was found. ``search_tries`` holds, for ``drop`` and ``move``, what each search tried, as
@@ -341,7 +349,7 @@ def _impossible(  # noqa: PLR0913, PLR0917 - the command's whole context
         which = _either(moves) if any_move else f"all of {', '.join(moves)}"
         remedies.append(f"move {which} off 0 and 1 (details.extreme_parameters)")
     remedy = ", or ".join(remedies) or (
-        "no drop of passed values, no move of bases or strengths off 0 and 1, and no removal of one exclusive "
+        "no drop of passed values, no move of parameters off 0 and 1, and no removal of one exclusive "
         "relation that was tried makes this command succeed; a drop combined with a move or a removal, and the "
         "removal of several exclusive relations, were not tried"
     )

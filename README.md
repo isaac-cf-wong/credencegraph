@@ -22,7 +22,7 @@ propositions it rests on, and computes what follows:
 
 Each node keeps the original text it came from alongside the proposition it
 states. Relations are either **inferential** (`requires`, `supports`, `refutes`,
-`equivalent`, `exclusive`), with a fixed probabilistic meaning, or
+`equivalent`, `exclusive`, `observes`), with a fixed probabilistic meaning, or
 **annotations** (any other type), which are stored and queried but ignored by
 inference. The engine has no built-in notion of authors, projects, or workflow;
 those are expressible as ordinary nodes and annotation relations.

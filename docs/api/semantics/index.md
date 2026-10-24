@@ -22,6 +22,16 @@ where
 So b is the probability of X when every required premise holds and no support or
 refuter is active; with no parents it is the prior.
 
+An observation O of a claim H is the target of one `observes` relation, of
+sensitivity s and false-pass rate f, and of no other relation that makes a
+parent. It has no base, and
+
+$$
+P(O = 1 \mid H) = s \cdot H + f \cdot (1 - H).
+$$
+
+Like the table above, this is of degree at most one in each parameter.
+
 `compile_graph` turns a `Graph` into an immutable `Network`:
 
 - nodes joined by `equivalent` relations are merged into one variable, and their
@@ -29,8 +39,11 @@ refuter is active; with no parents it is the prior.
 - each `exclusive(A, B)` relation becomes a constraint variable C with $P(C = 1
   \mid A, B) = 0$ when both are true and 1 otherwise, observed as $C = 1$ in
   every query, which changes the marginals of A and B;
-- an inference variable without a base is a compile error: there is no default
-  credence.
+- the target of an `observes` relation becomes an observation, whose table that
+  relation alone sets; a base on it, or another `requires`, `supports`,
+  `refutes` or `observes` relation into it, is a compile error;
+- any other inference variable without a base is a compile error: there is no
+  default credence.
 
 A compiled network holds every parameter at its credence mean. Because each
 parameter enters the joint distribution with degree at most one, the answer at

@@ -170,6 +170,18 @@
                         { "type": "null" }
                     ]
                 },
+                "sensitivity": {
+                    "oneOf": [
+                        { "$ref": "#/$defs/credence" },
+                        { "type": "null" }
+                    ]
+                },
+                "false_pass": {
+                    "oneOf": [
+                        { "$ref": "#/$defs/credence" },
+                        { "type": "null" }
+                    ]
+                },
                 "attributes": { "$ref": "#/$defs/attributes" },
                 "obligation": {
                     "oneOf": [
@@ -197,6 +209,24 @@
                 },
                 {
                     "if": {
+                        "properties": { "type": { "const": "observes" } }
+                    },
+                    "then": {
+                        "required": ["sensitivity", "false_pass"],
+                        "properties": {
+                            "sensitivity": { "$ref": "#/$defs/credence" },
+                            "false_pass": { "$ref": "#/$defs/credence" }
+                        }
+                    },
+                    "else": {
+                        "properties": {
+                            "sensitivity": { "type": "null" },
+                            "false_pass": { "type": "null" }
+                        }
+                    }
+                },
+                {
+                    "if": {
                         "not": {
                             "properties": {
                                 "type": {
@@ -205,7 +235,8 @@
                                         "supports",
                                         "refutes",
                                         "equivalent",
-                                        "exclusive"
+                                        "exclusive",
+                                        "observes"
                                     ]
                                 }
                             }

@@ -12,7 +12,7 @@ class ValidationError(CredenceGraphError, ValueError):
 
 
 class CycleError(ValidationError):
-    """A relation would close a cycle among ``requires``, ``supports`` and ``refutes`` relations.
+    """A relation would close a cycle among ``requires``, ``supports``, ``refutes`` and ``observes`` relations.
 
     Attributes:
         cycle: The node ids around the cycle, starting and ending at the same node.

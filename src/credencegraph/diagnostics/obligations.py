@@ -30,7 +30,7 @@ from credencegraph.core.obligation import (
     Discharge,
     file_digest,
 )
-from credencegraph.core.relation import EQUIVALENT, EXCLUSIVE, STRENGTH_TYPES, Relation
+from credencegraph.core.relation import ACYCLIC_TYPES, EQUIVALENT, EXCLUSIVE, Relation
 from credencegraph.diagnostics.records import Finding
 from credencegraph.diagnostics.weak_points import derivatives
 from credencegraph.inference.engine import Engine
@@ -456,9 +456,9 @@ class SorryReport:
 def dependencies(graph: Graph, target: str) -> list[Relation]:
     """Find the inferential relations a target depends on.
 
-    These are the ``requires``, ``supports`` and ``refutes`` relations into the target or into any
-    node it depends on, and the ``equivalent`` and ``exclusive`` relations that touch either; the
-    other end of each also becomes a node the target depends on.
+    These are the ``requires``, ``supports``, ``refutes`` and ``observes`` relations into the target
+    or into any node it depends on, and the ``equivalent`` and ``exclusive`` relations that touch
+    either; the other end of each also becomes a node the target depends on.
 
     Args:
         graph: The graph.
@@ -475,7 +475,7 @@ def dependencies(graph: Graph, target: str) -> list[Relation]:
         for relation in graph.relations.values():
             if relation.id in found:
                 continue
-            if relation.type in STRENGTH_TYPES:
+            if relation.type in ACYCLIC_TYPES:
                 touches = relation.target in reached
             elif relation.type in {EQUIVALENT, EXCLUSIVE}:
                 touches = relation.source in reached or relation.target in reached

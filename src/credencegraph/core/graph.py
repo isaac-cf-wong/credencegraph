@@ -14,8 +14,8 @@ class Graph:
     """Nodes and relations keyed by stable string ids.
 
     Every write is validated and leaves the graph unchanged when it is rejected. Relations must name
-    existing nodes, and the subgraph of ``requires``, ``supports`` and ``refutes`` relations must
-    stay acyclic. Annotation relations and ``equivalent``/``exclusive`` relations do not take part in
+    existing nodes, and the subgraph of ``requires``, ``supports``, ``refutes`` and ``observes``
+    relations must stay acyclic. Annotation relations and ``equivalent``/``exclusive`` relations do not take part in
     the cycle check.
     """
 
@@ -93,8 +93,8 @@ class Graph:
         Raises:
             ValidationError: If ``relation`` is not a ``Relation``, its id is already taken, or an endpoint
                 is not a node of the graph.
-            CycleError: If a ``requires``, ``supports`` or ``refutes`` relation would close a cycle among
-                such relations. The message names the cycle.
+            CycleError: If a ``requires``, ``supports``, ``refutes`` or ``observes`` relation would close
+                a cycle among such relations. The message names the cycle.
         """
         if not isinstance(relation, Relation):
             msg = f"add_relation expects a Relation, got {type(relation).__name__}"

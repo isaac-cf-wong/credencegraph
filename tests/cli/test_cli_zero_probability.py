@@ -126,6 +126,16 @@ def equivalent_impossible_bases(path: Path) -> Path:
     )
 
 
+def impossible_check(path: Path) -> Path:
+    """The check ``o`` of ``h`` never passes: its sensitivity and false-pass rate are 0, so moving either clears it."""
+    return write(
+        path,
+        Node("h", base=0.5),
+        Node("o"),
+        relations=(Relation("r", "observes", "h", "o", sensitivity=0.0, false_pass=0.0),),
+    )
+
+
 def many_unrelated_extremes(path: Path) -> Path:
     """Twenty nodes ``u0``..``u19`` no query here uses have a base of 0, and so have ``g0``, ``g1`` and ``g2``, last."""
     nodes = [Node(f"u{i}", base=0.0) for i in range(20)] + [Node(f"g{i}", base=0.0) for i in range(3)]
@@ -176,6 +186,15 @@ EACH = "the --given values and the --set values each have probability zero, so t
 
 # (graph, kind, target, items, message, what the hint must and must not say, the exclusive relation named)
 CASES = {
+    "check-that-cannot-pass": (
+        impossible_check,
+        "conditional",
+        "h",
+        [("--given", "o=true")],
+        GIVEN,
+        {"must": ["move any one of sensitivity:r, false_pass:r"], "must_not": ["exclusive", "drop"]},
+        None,
+    ),
     "base-of-zero-with-set": (
         impossible_base,
         "intervene",
@@ -343,6 +362,9 @@ def without(items: list[tuple[str, str]], dropped: list[str]) -> list[tuple[str,
     return [item for item in items if f"{item[0]} {item[1]}" not in dropped]
 
 
+RELATION_PARAMETERS = ("strength", "sensitivity", "false_pass")
+
+
 def changed(path: Path, softened: set[str] = frozenset(), removed: set[str] = frozenset(), value: float = 0.4) -> Path:
     """Write a copy of the graph at ``path`` with some parameters moved to ``value`` and some relations removed."""
     graph, copy = load(path), Graph()
@@ -350,21 +372,22 @@ def changed(path: Path, softened: set[str] = frozenset(), removed: set[str] = fr
         copy.add_node(replace(node, base=Point(value)) if f"base:{node.id}" in softened else node)
     for relation in graph.relations.values():
         if relation.id not in removed:
-            soft = f"strength:{relation.id}" in softened
-            copy.add_relation(replace(relation, strength=Point(value)) if soft else relation)
+            soft = {name: Point(value) for name in RELATION_PARAMETERS if f"{name}:{relation.id}" in softened}
+            copy.add_relation(replace(relation, **soft))
     out = path.with_name(f"changed-{len(list(path.parent.iterdir()))}.json")
     dump(copy, out)
     return out
 
 
 def extreme_ids(path: Path) -> list[str]:
-    """Every base and strength of the graph at ``path`` that is exactly 0 or 1."""
+    """Every parameter of the graph at ``path`` that is exactly 0 or 1."""
     graph = load(path)
     ids = [f"base:{n.id}" for n in graph.nodes.values() if isinstance(n.base, Point) and n.base.p in {0.0, 1.0}]
     return ids + [
-        f"strength:{r.id}"
+        f"{name}:{r.id}"
         for r in graph.relations.values()
-        if isinstance(r.strength, Point) and r.strength.p in {0.0, 1.0}
+        for name in RELATION_PARAMETERS
+        if isinstance(getattr(r, name), Point) and getattr(r, name).p in {0.0, 1.0}
     ]
 
 
@@ -450,7 +473,7 @@ def test_move_at_any_other_value(cli, tmp_path, name):
     graph = load(path)
     for parameter in extreme_ids(path):
         kind_of, key = parameter.split(":")
-        current = (graph.nodes[key].base if kind_of == "base" else graph.relations[key].strength).p
+        current = (graph.nodes[key].base if kind_of == "base" else getattr(graph.relations[key], kind_of)).p
         for value in (1e-6, 0.999999, 1.0 - current):
             moved = succeeds(cli, changed(path, softened={parameter}, value=value), kind, target, items)
             assert moved is (parameter in details["move_any_one_of"]), (parameter, value)

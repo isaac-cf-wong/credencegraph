@@ -338,3 +338,101 @@ def test_failed_write_keeps_the_old_file(cli, graph_file, mocker):
     assert "disk full" in error["message"]
     assert graph_file.read_bytes() == before
     assert sorted(p.name for p in graph_file.parent.iterdir()) == [graph_file.name]
+
+
+class TestRelateObserves:
+    """``relate --type observes`` takes a sensitivity and a false-pass rate instead of a strength."""
+
+    def test_adds_an_observes_relation(self, cli, graph_file):
+        """Test the stored credences, the output, and a query that conditions on the check."""
+        cli.json("add-node", graph_file, "--id", "check")
+        output = cli.json(
+            "relate",
+            graph_file,
+            "claim",
+            "check",
+            "--type",
+            "observes",
+            "--sensitivity",
+            "beta:9,1",
+            "--false-pass",
+            "0.2",
+        )
+        relation = load(graph_file).relations["claim-observes-check"]
+        assert (relation.sensitivity, relation.false_pass, relation.strength) == (Beta(9, 1), Point(0.2), None)
+        assert output["relation"] == {
+            "id": "claim-observes-check",
+            "type": "observes",
+            "source": "claim",
+            "target": "check",
+            "strength": None,
+            "sensitivity": {"alpha": 9.0, "beta": 1.0},
+            "false_pass": 0.2,
+            "inferential": True,
+        }
+        prior = cli.json("query", graph_file, "marginal", "claim", "--draws", "0")["point"]
+        posterior = cli.json("query", graph_file, "conditional", "claim", "--given", "check=true", "--draws", "0")
+        expected = 0.9 * prior / (0.9 * prior + 0.2 * (1 - prior))
+        assert posterior["point"] == pytest.approx(expected, rel=1e-12, abs=0.0)
+
+    @pytest.mark.parametrize(
+        ("given", "missing"), [(("--false-pass", "0.2"), "--sensitivity"), (("--sensitivity", "0.9"), "--false-pass")]
+    )
+    def test_needs_both_rates(self, cli, graph_file, given, missing):
+        """Test that ``observes`` is refused without either rate, and the file is left alone."""
+        before = graph_file.read_bytes()
+        error = cli.error("relate", graph_file, "claim", "calibrated", "--type", "observes", *given)
+        assert error["code"] == "invalid-argument"
+        assert missing in error["message"]
+        assert graph_file.read_bytes() == before
+
+    def test_takes_no_strength(self, cli, graph_file):
+        """Test that ``observes`` refuses a strength."""
+        error = cli.error(
+            "relate", graph_file, "claim", "calibrated", "--type", "observes", "--strength", "0.5",
+            "--sensitivity", "0.9", "--false-pass", "0.2",
+        )  # fmt: skip
+        assert error["code"] == "invalid-argument"
+        assert "--strength" in error["message"]
+
+    @pytest.mark.parametrize("option", ["--sensitivity", "--false-pass"])
+    def test_rates_only_for_observes(self, cli, graph_file, option):
+        """Test that another type refuses a sensitivity or a false-pass rate."""
+        error = cli.error(
+            "relate", graph_file, "calibrated", "claim", "--type", "supports", "--strength", "0.5", option, "0.3"
+        )
+        assert error["code"] == "invalid-argument"
+        assert option in error["message"]
+        assert "--type observes" in error["hint"]
+
+    def test_invalid_rate(self, cli, graph_file):
+        """Test that a rate is parsed like any other credence."""
+        error = cli.error(
+            "relate", graph_file, "claim", "calibrated", "--type", "observes", "--sensitivity", "2",
+            "--false-pass", "0.2",
+        )  # fmt: skip
+        assert error["code"] == "invalid-argument"
+        assert error["message"].startswith("--sensitivity '2'")
+
+
+def test_check_explains_an_observation_with_a_base(cli, graph_file):
+    """Test that ``check`` names an observation that has a base, and says what to remove."""
+    cli.json("add-node", graph_file, "--id", "check", "--base", "0.5")
+    cli.json(
+        "relate", graph_file, "claim", "check", "--type", "observes", "--sensitivity", "0.9", "--false-pass", "0.2"
+    )
+    error = cli.error("check", graph_file)
+    assert error["code"] == "compile-error"
+    assert error["message"] == "observations with a base or another parent: 'check'"
+    assert "remove the base of each observation listed" in error["hint"]
+
+
+def test_check_explains_an_observation_with_another_parent(cli, graph_file):
+    """Test that ``check`` names an observation that another relation also points into."""
+    cli.json("add-node", graph_file, "--id", "check")
+    cli.json(
+        "relate", graph_file, "claim", "check", "--type", "observes", "--sensitivity", "0.9", "--false-pass", "0.2"
+    )
+    cli.json("relate", graph_file, "signal", "check", "--type", "supports", "--strength", "0.5")
+    error = cli.error("check", graph_file)
+    assert error["message"] == "observations with a base or another parent: 'check'"

@@ -6,7 +6,7 @@ from collections.abc import Iterable
 
 from credencegraph.core.credence import Credence
 from credencegraph.core.graph import Graph
-from credencegraph.core.relation import EQUIVALENT, EXCLUSIVE, STRENGTH_TYPES, is_inferential
+from credencegraph.core.relation import ACYCLIC_TYPES, EQUIVALENT, EXCLUSIVE, OBSERVES, is_inferential
 from credencegraph.semantics.errors import CompileError
 from credencegraph.semantics.network import CONSTRAINT, PROPOSITION, Link, Network, ParameterKey, Variable
 
@@ -106,15 +106,58 @@ def inference_sets(graph: Graph) -> dict[str, list[str]]:
     return _merge(graph, _inference_nodes(graph))[1]
 
 
-def _bases(graph: Graph, members: dict[str, list[str]]) -> dict[str, str]:
+def _observations(graph: Graph, sets: _UnionFind, members: dict[str, list[str]]) -> set[str]:
+    """Find the merged sets that are observations, the targets of ``observes`` relations.
+
+    An observation takes its probability from the one ``observes`` relation into it, so it has no
+    base and no other parent.
+
+    Args:
+        graph: The graph.
+        sets: The union-find structure of the merged sets.
+        members: Members of each set by representative.
+
+    Returns:
+        The representatives of the observations.
+
+    Raises:
+        CompileError: If an observation has a base or another relation into it that makes a parent.
+    """
+    into: dict[str, list[str]] = {}
+    observed: dict[str, str] = {}
+    for relation in graph.relations.values():
+        if relation.type in ACYCLIC_TYPES:
+            into.setdefault(sets.find(relation.target), []).append(relation.id)
+            if relation.type == OBSERVES:
+                observed.setdefault(sets.find(relation.target), relation.id)
+    for root, relation_id in observed.items():
+        others = [other for other in into[root] if other != relation_id]
+        if others:
+            msg = (
+                f"observation {root!r} is the target of observes relation {relation_id!r}, which alone sets its "
+                f"probability, but relations {others!r} also point into it"
+            )
+            raise CompileError(msg)
+        carriers = [node_id for node_id in members[root] if graph.nodes[node_id].base is not None]
+        if carriers:
+            msg = (
+                f"observation {root!r} is the target of observes relation {relation_id!r}, which sets its "
+                f"probability, but node {carriers[0]!r} gives it a base"
+            )
+            raise CompileError(msg)
+    return set(observed)
+
+
+def _bases(graph: Graph, members: dict[str, list[str]], observations: set[str]) -> dict[str, str]:
     """Pick the node whose base each merged set uses.
 
     Args:
         graph: The graph.
         members: Members of each set by representative.
+        observations: The representatives of the observations, which have no base.
 
     Returns:
-        For each representative, the id of the earliest member that has a base.
+        For each representative other than an observation, the id of the earliest member that has a base.
 
     Raises:
         CompileError: If a set has no base at all, or two of its members have different bases.
@@ -122,6 +165,8 @@ def _bases(graph: Graph, members: dict[str, list[str]]) -> dict[str, str]:
     chosen: dict[str, str] = {}
     missing: list[str] = []
     for root, ids in members.items():
+        if root in observations:
+            continue
         carriers = [node_id for node_id in ids if graph.nodes[node_id].base is not None]
         if not carriers:
             missing.append(ids[0] if len(ids) == 1 else f"{ids[0]} (merged with {', '.join(ids[1:])})")
@@ -215,8 +260,9 @@ def compile_graph(graph: Graph) -> Network:
 
     Nodes joined by ``equivalent`` relations are merged into one variable, named after the earliest
     of them; their bases must agree. Each ``exclusive`` relation becomes a constraint variable that
-    is false only when both of its nodes are true, and that every query observes as true. Nodes that
-    are not inference variables, and annotation relations, are left out.
+    is false only when both of its nodes are true, and that every query observes as true. The target
+    of an ``observes`` relation becomes an observation, whose table that relation alone sets. Nodes
+    that are not inference variables, and annotation relations, are left out.
 
     Args:
         graph: The graph.
@@ -225,12 +271,13 @@ def compile_graph(graph: Graph) -> Network:
         The network, with every parameter at its credence mean.
 
     Raises:
-        CompileError: If an inference variable has no base, merged nodes have conflicting bases, or
-            the relations form a cycle once ``equivalent`` nodes are merged.
+        CompileError: If an inference variable has no base, merged nodes have conflicting bases, an
+            observation has a base or another parent, or the relations form a cycle once
+            ``equivalent`` nodes are merged.
     """
     node_ids = _inference_nodes(graph)
     sets, members = _merge(graph, node_ids)
-    bases = _bases(graph, members)
+    bases = _bases(graph, members, _observations(graph, sets, members))
 
     edges: dict[str, list[tuple[str, str]]] = {}
     links: dict[str, list[tuple[str, str, str]]] = {}
@@ -238,12 +285,16 @@ def compile_graph(graph: Graph) -> Network:
     for node_id in bases.values():
         parameters[ParameterKey("base", node_id)] = graph.nodes[node_id].base  # type: ignore[assignment]
     for relation in graph.relations.values():
-        if relation.type not in STRENGTH_TYPES:
+        if relation.type not in ACYCLIC_TYPES:
             continue
         parent, child = sets.find(relation.source), sets.find(relation.target)
         edges.setdefault(parent, []).append((relation.id, child))
         links.setdefault(child, []).append((relation.id, relation.type, parent))
-        parameters[ParameterKey("strength", relation.id)] = relation.strength  # type: ignore[assignment]
+        if relation.type == OBSERVES:
+            parameters[ParameterKey("sensitivity", relation.id)] = relation.sensitivity  # type: ignore[assignment]
+            parameters[ParameterKey("false_pass", relation.id)] = relation.false_pass  # type: ignore[assignment]
+        else:
+            parameters[ParameterKey("strength", relation.id)] = relation.strength  # type: ignore[assignment]
 
     order = _topological(list(members), edges)
     index = {root: position for position, root in enumerate(order)}
@@ -257,7 +308,7 @@ def compile_graph(graph: Graph) -> Network:
                 kind=PROPOSITION,
                 members=tuple(members[root]),
                 parents=tuple(sorted({index[parent] for _, _, parent in own})),
-                base=bases[root],
+                base=bases.get(root),
                 links=tuple(Link(relation, rtype, index[parent]) for relation, rtype, parent in own),
             )
         )

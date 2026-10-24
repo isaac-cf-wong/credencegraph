@@ -46,13 +46,13 @@ format. These are the facts it relies on (paths are under `src/credencegraph/`):
   a non-empty string (`core/anchor.py:39-49`). It defines no digest algorithm
   and does not compare `quote` with `statement`.
 - `attributes` on nodes and relations is open, frozen JSON (`core/node.py:40`,
-  `core/relation.py:64`, `core/attributes.py:56-83`). Every field this contract
+  `core/relation.py:76`, `core/attributes.py:56-83`). Every field this contract
   adds to a node lives there.
-- A relation type outside `requires`, `supports`, `refutes`, `equivalent` and
-  `exclusive` is an annotation that inference ignores
-  (`core/relation.py:19-38`). `requires`, `supports` and `refutes` must carry a
-  strength (`core/relation.py:72-80`), and their source is the premise and their
-  target the conclusion (`diagnostics/structure.py:79`).
+- A relation type outside `requires`, `supports`, `refutes`, `equivalent`,
+  `exclusive` and `observes` is an annotation that inference ignores
+  (`core/relation.py:14-41`). `requires`, `supports` and `refutes` must carry a
+  strength (`core/relation.py:87-95`), and their source is the premise and their
+  target the conclusion (`diagnostics/structure.py:96`).
 - The inference variables are the nodes that have a `base` or are an endpoint of
   an inferential relation (`semantics/compiler.py:60-73`). A chunk that is only
   typed and annotated is not a variable and needs no `base`.

@@ -8,7 +8,7 @@ from itertools import product
 from credencegraph.core.credence import Credence
 from credencegraph.core.errors import ValidationError
 from credencegraph.core.graph import Graph
-from credencegraph.core.relation import STRENGTH_TYPES, SUPPORTS
+from credencegraph.core.relation import ACYCLIC_TYPES, OBSERVES, STRENGTH_TYPES, SUPPORTS
 from credencegraph.diagnostics.records import CORRELATED_SUPPORT, MISSING_PARAMETER, UNANCHORED, Finding
 from credencegraph.semantics.compiler import inference_sets
 from credencegraph.semantics.cpt import Term, true_probability
@@ -39,7 +39,9 @@ def missing_parameters(graph: Graph) -> list[Finding]:
     """Find inference variables without a ``base`` and inferential relations without a ``strength``.
 
     Nodes merged by ``equivalent`` relations form one variable, which needs a base on at least one of
-    them. A graph with any such finding cannot be compiled: there is no default credence.
+    them. An observation, the target of an ``observes`` relation, takes its probability from that
+    relation and needs no base. A graph with any such finding cannot be compiled: there is no
+    default credence.
 
     ``Relation`` already refuses to be built without a strength when its type needs one, so the
     second check only fires on a graph whose relations were altered after validation.
@@ -50,9 +52,10 @@ def missing_parameters(graph: Graph) -> list[Finding]:
     Returns:
         One finding per variable without a base, then one per relation without a strength.
     """
+    observed = {relation.target for relation in graph.relations.values() if relation.type == OBSERVES}
     findings: list[Finding] = []
     for root, ids in inference_sets(graph).items():
-        if any(graph.nodes[node_id].base is not None for node_id in ids):
+        if any(graph.nodes[node_id].base is not None or node_id in observed for node_id in ids):
             continue
         findings.append(
             Finding(
@@ -81,7 +84,8 @@ def unanchored(graph: Graph) -> list[Finding]:
 
     Such a variable is an assumption nobody wrote down: nothing in the graph says where its credence
     comes from. Nodes merged by ``equivalent`` relations are one variable, anchored if any of them
-    has a source or is the target of a ``requires``, ``supports`` or ``refutes`` relation.
+    has a source or is the target of a ``requires``, ``supports``, ``refutes`` or ``observes``
+    relation.
 
     Args:
         graph: The graph.
@@ -89,7 +93,7 @@ def unanchored(graph: Graph) -> list[Finding]:
     Returns:
         One finding per unanchored variable, in insertion order.
     """
-    has_parents = {relation.target for relation in graph.relations.values() if relation.type in STRENGTH_TYPES}
+    has_parents = {relation.target for relation in graph.relations.values() if relation.type in ACYCLIC_TYPES}
     findings: list[Finding] = []
     for root, ids in inference_sets(graph).items():
         if any(graph.nodes[node_id].sources or node_id in has_parents for node_id in ids):
@@ -315,6 +319,10 @@ def correlated_support(graph: Graph, min_supports: int = DEFAULT_MIN_SUPPORTS) -
                 terms.setdefault(child, []).append((relation.type, parent, Fraction(relation.strength.mean)))
                 if relation.type == SUPPORTS:
                     supports.setdefault(child, {}).setdefault(parent, []).append(relation.id)
+        elif relation.type == OBSERVES and relation.sensitivity.mean != relation.false_pass.mean:  # type: ignore[union-attr]
+            # At the means, an observation depends on its claim unless it is as likely whichever value
+            # the claim takes. It has no base, so it is never a fixed point and needs no terms.
+            parents.setdefault(root[relation.target], set()).add(root[relation.source])
     fixed = _fixed_points(graph, members, parents, terms)
     # A fixed variable takes its value whatever its parents are, so nothing above it reaches its descendants.
     effective = {child: own for child, own in parents.items() if child not in fixed}
