@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import replace
 from itertools import combinations
 from typing import Annotated
@@ -17,9 +17,12 @@ from credencegraph.cli.common import (
     CliError,
     GraphPath,
     JsonOption,
+    ObservedOption,
     Result,
     check_consistent,
     compile_checked,
+    merge_observed,
+    observed_values,
     parse_assignment,
     read_graph,
     require_variables,
@@ -44,7 +47,9 @@ KINDS = ("marginal", "joint", "conditional", "intervene")
 SEARCH_BUDGET = 256
 
 
-def _check_shape(kind: str, target: dict[str, bool], given: dict[str, bool], setting: dict[str, bool]) -> None:
+def _check_shape(
+    kind: str, target: dict[str, bool], given: dict[str, bool], setting: dict[str, bool], *, observed: bool = False
+) -> None:
     """Check that the targets and options fit the kind of query.
 
     Args:
@@ -52,6 +57,7 @@ def _check_shape(kind: str, target: dict[str, bool], given: dict[str, bool], set
         target: The target assignment.
         given: The evidence.
         setting: The interventions.
+        observed: Whether ``--observed`` was passed, which may supply the evidence.
 
     Raises:
         CliError: If the kind is unknown or the query does not fit it.
@@ -69,7 +75,7 @@ def _check_shape(kind: str, target: dict[str, bool], given: dict[str, bool], set
             f"a marginal query takes one target node, got {len(target)}",
             "use 'joint' for the probability that several nodes hold together",
         )
-    if kind == "conditional" and not given:
+    if kind == "conditional" and not given and not observed:
         raise CliError(INVALID_ARGUMENT, "a conditional query needs evidence", "pass --given NODE=true|false")
     if kind == "intervene" and not setting:
         raise CliError(INVALID_ARGUMENT, "an intervene query needs an intervention", "pass --set NODE=true|false")
@@ -212,8 +218,8 @@ def _either(words: list[str]) -> str:
 
 
 def _split(items: list[tuple[str, str, bool]]) -> tuple[dict[str, bool], dict[str, bool]]:
-    """Split passed values, as ``(flag, node id, value)``, into the ``--given`` and the ``--set`` values."""
-    return {n: v for flag, n, v in items if flag == "--given"}, {n: v for flag, n, v in items if flag == "--set"}
+    """Split passed values, as ``(flag, node id, value)``, into the evidence and the ``--set`` values."""
+    return {n: v for flag, n, v in items if flag != "--set"}, {n: v for flag, n, v in items if flag == "--set"}
 
 
 def _failing_values(
@@ -228,7 +234,8 @@ def _failing_values(
     A flag is named when the query fails with its values alone; when no flag's values fail alone,
     all of them fail together. Exclusive relations are named as part of the context only when the
     named values, under every ``--set`` value passed, succeed without them: ``--given`` values are
-    conditioned on under the intervention, so it can be what makes an exclusive relation bind.
+    conditioned on under the intervention, so it can be what makes an exclusive relation bind; so are
+    ``--observed`` values.
 
     Args:
         engine: The engine the command answers with.
@@ -240,7 +247,7 @@ def _failing_values(
     Returns:
         The error message, and the cause for the hint.
     """
-    flags = [flag for flag in ("--given", "--set") if any(item[0] == flag for item in items)]
+    flags = [flag for flag in ("--given", "--observed", "--set") if any(item[0] == flag for item in items)]
     groups = {flag: [item for item in items if item[0] == flag] for flag in flags}
     named = [(flag, group) for flag, group in groups.items() if _fails(engine, network, target, *_split(group))]
     if len(named) > 1:
@@ -262,7 +269,13 @@ def _failing_values(
 
 
 def _impossible(  # noqa: PLR0913, PLR0917 - the command's whole context
-    engine: VariableElimination, kind: str, graph: Graph, network: Network, query: Query, error: ZeroProbabilityError
+    engine: VariableElimination,
+    kind: str,
+    graph: Graph,
+    network: Network,
+    query: Query,
+    error: ZeroProbabilityError,
+    observed: Collection[str] = (),
 ) -> CliError:
     """Explain a query whose evidence has probability zero by its cause, with remedies that are checked.
 
@@ -284,6 +297,7 @@ def _impossible(  # noqa: PLR0913, PLR0917 - the command's whole context
         network: The compiled network.
         query: The query.
         error: The engine's error.
+        observed: The evidence nodes whose value came from ``--observed``, named as such.
 
     Returns:
         A ``zero-probability`` error. Its details hold ``drop_any_one_of`` (dropping any one of those
@@ -296,7 +310,7 @@ def _impossible(  # noqa: PLR0913, PLR0917 - the command's whole context
         ``SEARCH_BUDGET`` sets with sets left untried.
     """
     target = dict(query.target)
-    items = [("--given", n, v) for n, v in query.evidence.items()] + [
+    items = [("--observed" if n in observed else "--given", n, v) for n, v in query.evidence.items()] + [
         ("--set", n, v) for n, v in query.interventions.items()
     ]
     if not items or _fails(engine, network, target, {}, {}):
@@ -405,18 +419,20 @@ def query_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to each 
     max_factor_size: Annotated[
         int, typer.Option(help="The largest intermediate factor exact inference may build, in table entries.")
     ] = DEFAULT_MAX_FACTOR_SIZE,
+    observe: ObservedOption = False,
     as_json: JsonOption = False,
 ) -> None:
     """Compute a probability from a graph file.
 
     Every kind accepts --given; a marginal or joint query with evidence is the conditional one.
+    --observed adds the value of every node that carries attributes.observed to the evidence.
     """
 
     def action() -> Result:
         target = parse_assignment(targets, "target", default=True)
         evidence = parse_assignment(given or (), "--given")
         interventions = parse_assignment(setting or (), "--set")
-        _check_shape(kind, target, evidence, interventions)
+        _check_shape(kind, target, evidence, interventions, observed=observe)
         if draws < 0:
             raise CliError(
                 INVALID_ARGUMENT, f"--draws must be 0 or more, got {draws}", "pass --draws 0 to skip the band"
@@ -428,11 +444,21 @@ def query_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to each 
                 f"the default is {DEFAULT_MAX_FACTOR_SIZE} table entries",
             )
         graph = read_graph(path)
+        observed = observed_values(graph) if observe else {}
         require_variables(graph, target, "target")
         require_variables(graph, evidence, "--given")
+        require_variables(graph, observed, "--observed")
         require_variables(graph, interventions, "--set")
+        given_values = evidence
+        evidence = merge_observed(evidence, observed)
+        if kind == "conditional" and not evidence:
+            raise CliError(
+                INVALID_ARGUMENT,
+                "a conditional query needs evidence, and no node of the graph carries attributes.observed",
+                "pass --given NODE=true|false",
+            )
         network = compile_checked(graph)
-        check_consistent(network, evidence, interventions)
+        check_consistent(network, evidence, interventions, observed)
         query = Query(target, evidence, interventions)
         engine = VariableElimination(max_factor_size)
         options = {"engine": engine, "draws": draws, "rng": seed}
@@ -448,12 +474,13 @@ def query_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to each 
             else:
                 answer = joint(network, target, **options)
         except ZeroProbabilityError as error:
-            raise _impossible(engine, kind, graph, network, query, error) from None
+            raise _impossible(engine, kind, graph, network, query, error, observed) from None
         payload = {
             "path": str(path),
             "kind": kind,
             "target": dict(query.target),
-            "given": dict(query.evidence),
+            "given": given_values,
+            **({"observed": observed} if observe else {}),
             "set": dict(query.interventions),
             "seed": seed,
             **answer.to_dict(),

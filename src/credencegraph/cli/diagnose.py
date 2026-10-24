@@ -16,10 +16,13 @@ from credencegraph.cli.common import (
     CliError,
     GraphPath,
     JsonOption,
+    ObservedOption,
     Result,
     check_consistent,
     compile_checked,
     compile_failure,
+    merge_observed,
+    observed_values,
     parse_assignment,
     read_graph,
     read_rubric,
@@ -105,7 +108,7 @@ def _targets(graph: Graph, explicit: list[str], selection: str | None, evidence:
         graph: The graph.
         explicit: The ``--target`` values, in the order given.
         selection: The ``--targets`` value, if any; only ``stated`` is accepted.
-        evidence: The ``--given`` values.
+        evidence: The ``--given`` values, with any ``--observed`` ones merged in.
 
     Returns:
         The ``--target`` nodes, then, for ``--targets stated``, every node with a ``stated``
@@ -139,18 +142,23 @@ def _targets(graph: Graph, explicit: list[str], selection: str | None, evidence:
     return list(dict.fromkeys([*explicit, *stated]))
 
 
-def _check_evidence(engine: VariableElimination, network: Network, evidence: dict[str, bool]) -> None:
+def _check_evidence(
+    engine: VariableElimination, network: Network, given: dict[str, bool], observed: dict[str, bool]
+) -> None:
     """Refuse evidence that the graph gives probability zero, naming the cause.
 
     Args:
         engine: The engine the command diagnoses with.
         network: The compiled network.
-        evidence: The ``--given`` values.
+        given: The ``--given`` values.
+        observed: The ``--observed`` values.
 
     Raises:
         CliError: A ``zero-probability`` error pointing at the graph when no world satisfies its
-            ``exclusive`` relations even without the evidence, and at ``--given`` otherwise.
+            ``exclusive`` relations even without the evidence, and at ``--given`` and ``--observed`` otherwise.
     """
+    evidence = {**given, **observed}
+    values = " and ".join(flag for flag, passed in (("--given", given), ("--observed", observed)) if passed)
     try:
         engine.query(network, Query({}, evidence))
     except ZeroProbabilityError:
@@ -160,11 +168,11 @@ def _check_evidence(engine: VariableElimination, network: Network, evidence: dic
             raise translate(error, "diagnose") from None
         raise CliError(
             ZERO_PROBABILITY,
-            "the --given values have probability zero, so there is nothing to diagnose under them",
-            "the --given values have probability zero under the graph's credences; drop or change one of them. "
-            "'credencegraph query' with the same --given values names the drops and the moves of bases or "
+            f"the {values} values have probability zero, so there is nothing to diagnose under them",
+            f"the {values} values have probability zero under the graph's credences; drop or change one of them. "
+            f"'credencegraph query' with the same {values} values names the drops and the moves of bases or "
             "strengths off 0 and 1 that make them possible",
-            {"given": evidence},
+            {"given": given, **({"observed": observed} if observed else {})},
         ) from None
 
 
@@ -216,6 +224,7 @@ def diagnose_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to ea
     max_factor_size: Annotated[
         int, typer.Option(help="The largest intermediate factor exact inference may build, in table entries.")
     ] = DEFAULT_MAX_FACTOR_SIZE,
+    observe: ObservedOption = False,
     as_json: JsonOption = False,
 ) -> None:
     """Report the weak points of a graph file and, with --target or --targets, of some of its nodes.
@@ -225,7 +234,8 @@ def diagnose_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to ea
 
     With --given, every inference diagnostic is taken given the evidence: stated credences are
     compared with P(X | evidence), and each target's sensitivity, crux, single points of failure,
-    failure impact and value of information are those of P(target | evidence).
+    failure impact and value of information are those of P(target | evidence). --observed adds the
+    value of every node that carries attributes.observed to the evidence.
     """
 
     def action() -> Result:
@@ -245,15 +255,19 @@ def diagnose_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to ea
                 f"the default is {DEFAULT_MAX_FACTOR_SIZE} table entries",
             )
         graph = read_graph(path)
+        observed = observed_values(graph) if observe else {}
+        given_values = evidence
+        evidence = merge_observed(evidence, observed)
         chosen = _targets(graph, target or [], targets, evidence)
-        require_variables(graph, evidence, "--given")
+        require_variables(graph, given_values, "--given")
+        require_variables(graph, observed, "--observed")
         engine = VariableElimination(max_factor_size)
         try:
             # A graph with a missing parameter is reported by its structural findings, whatever the evidence.
             if evidence and not missing_parameters(graph):
                 network = compile_checked(graph)
-                check_consistent(network, evidence, {})
-                _check_evidence(engine, network, evidence)
+                check_consistent(network, evidence, {}, observed)
+                _check_evidence(engine, network, given_values, observed)
             report = diagnose_many(
                 graph,
                 chosen,
@@ -273,8 +287,13 @@ def diagnose_command(  # noqa: PLR0913, PLR0917 - Typer maps one parameter to ea
                 f"to at least {error.required}",
                 {"required": error.required, "limit": error.limit},
             ) from None
-        # Without --given the response is exactly the one for the graph before anything is observed.
-        payload = {"path": str(path), "targets": chosen, **({"given": evidence} if evidence else {})}
+        # Without --given and --observed the response is exactly the one for the graph before anything is observed.
+        payload = {
+            "path": str(path),
+            "targets": chosen,
+            **({"given": given_values} if given_values else {}),
+            **({"observed": observed} if observe else {}),
+        }
         payload["findings"] = report.to_dicts()
         return Result(payload, _lines(report.all_findings()) or ["no findings"])
 

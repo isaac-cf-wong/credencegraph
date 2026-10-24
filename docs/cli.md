@@ -28,21 +28,21 @@ credencegraph diagnose g.json --target signal --targets stated
 
 ## Commands
 
-| Command    | Does                                                                                                |
-| ---------- | --------------------------------------------------------------------------------------------------- |
-| `init`     | Create an empty graph file; `--force` replaces an existing one.                                     |
-| `ingest`   | Build a graph of document nodes from a LaTeX or PDF document `SOURCE GRAPH`; see below.             |
-| `add-node` | Add a node: `--id`, and optionally `--statement`, `--kind`, `--base`, `--stated`, `--source`.       |
-| `relate`   | Add a relation `SOURCE TARGET --type TYPE`, with `--strength` or `--sensitivity`, `--false-pass`.   |
-| `query`    | `marginal`, `joint`, `conditional` or `intervene`, with `--given`, `--set`, `--draws`, `--seed`.    |
-| `diagnose` | Every diagnostic's findings; `--target` or `--targets` adds weak points, `--given` conditions them. |
-| `check`    | Whether the file is a valid graph that compiles; with `--rubric`, whether it meets a rubric.        |
-| `coverage` | How far classification against a `--rubric` has got: counts by origin and type, what is left.       |
-| `split`    | Make a document chunk `NODE` a compound, with a span child per `--at` clause or a field child.      |
-| `annotate` | Type (`--type`), fill in (`--set`), link (`--rests-on`) and assess (`--verdict`) a node.            |
-| `verify`   | Re-check every discharged obligation, running its script; see below.                                |
-| `sorries`  | The steps `--target` depends on that rest on judgement only, ranked by sensitivity.                 |
-| `version`  | The installed version.                                                                              |
+| Command    | Does                                                                                                    |
+| ---------- | ------------------------------------------------------------------------------------------------------- |
+| `init`     | Create an empty graph file; `--force` replaces an existing one.                                         |
+| `ingest`   | Build a graph of document nodes from a LaTeX or PDF document `SOURCE GRAPH`; see below.                 |
+| `add-node` | Add a node: `--id`, and optionally `--statement`, `--kind`, `--base`, `--stated`, `--source`.           |
+| `relate`   | Add a relation `SOURCE TARGET --type TYPE`, with `--strength` or `--sensitivity`, `--false-pass`.       |
+| `query`    | `marginal`, `joint`, `conditional`, `intervene`; `--given`, `--observed`, `--set`, `--draws`, `--seed`. |
+| `diagnose` | All findings; `--target` or `--targets` adds weak points, `--given` and `--observed` condition them.    |
+| `check`    | Whether the file is a valid graph that compiles; with `--rubric`, whether it meets a rubric.            |
+| `coverage` | How far classification against a `--rubric` has got: counts by origin and type, what is left.           |
+| `split`    | Make a document chunk `NODE` a compound, with a span child per `--at` clause or a field child.          |
+| `annotate` | Type (`--type`), fill in (`--set`), link (`--rests-on`) and assess (`--verdict`) a node.                |
+| `verify`   | Re-check every discharged obligation, running its script; see below.                                    |
+| `sorries`  | The steps `--target` depends on that rest on judgement only, ranked by sensitivity.                     |
+| `version`  | The installed version.                                                                                  |
 
 **Credences** are written as a bare probability, `0.3`, or as a Beta
 distribution, `beta:ALPHA,BETA`, such as `beta:8,2`.
@@ -56,8 +56,22 @@ target means true. A `marginal` query takes one target and a `joint` query
 several. Any kind of query accepts `--given`; only `intervene` accepts `--set`.
 `diagnose` accepts `--given` too, with the same form and the same rules for
 equivalent nodes; see [Diagnosing under evidence](#diagnosing-under-evidence).
-The relation id defaults to `SOURCE-TYPE-TARGET`; pass `--id` to add a second
-relation of the same type between the same nodes.
+
+**Recorded observations.** A graph file holds no evidence values, but a node may
+record its own observed value as `attributes.observed`, `true` or `false`; a
+check that errored or was not run leaves it absent. `query --observed` and
+`diagnose --observed` add the value of every node that carries one to the
+evidence, merged with any `--given` values: a `--given` value may repeat an
+observed one, and one that contradicts it, directly or through an equivalent
+node, is an `invalid-argument`, as is an `attributes.observed` that is not
+`true` or `false`. A node without `attributes.observed` is not conditioned on,
+so a check with no recorded result changes no answer. With `--observed` alone, a
+`conditional` query takes its evidence from the graph, and is an
+`invalid-argument` when no node carries an observation. Without `--observed`,
+`attributes.observed` is ignored. The JSON response adds `"observed"`, the
+values read, after `"given"` when the flag is passed; `"given"` holds only the
+`--given` values. The relation id defaults to `SOURCE-TYPE-TARGET`; pass `--id`
+to add a second relation of the same type between the same nodes.
 
 A relation type outside `requires`, `supports`, `refutes`, `equivalent` and
 `exclusive` is an annotation, which inference ignores. A type close to an
@@ -221,10 +235,11 @@ is taken given those values, E:
 The target may not be observed, directly or through an equivalent node: its
 diagnostics would all be trivial. That, and a `--given` node that is not an
 inference variable, is an `invalid-argument` or `unknown-node`. Evidence that
-the graph gives probability zero is a `zero-probability` error naming `--given`,
-with the values in `details.given`; `query` with the same `--given` values names
-the remedies. The JSON response adds `"given"` after `"targets"` when evidence
-was passed; without `--given` it is unchanged.
+the graph gives probability zero is a `zero-probability` error naming `--given`
+or `--observed`, with the values in `details.given` and, with `--observed`,
+`details.observed`; `query` with the same values names the remedies. The JSON
+response adds `"given"` after `"targets"` when `--given` values were passed, and
+`"observed"` after it with `--observed`; without either it is unchanged.
 
 ## Diagnosing several targets
 
@@ -267,7 +282,8 @@ on the graph above prints, with one of its findings shown,
 
 - `targets` lists the nodes diagnosed, after repeats are dropped and
   `--targets stated` is resolved; `[]` without a target.
-- `given`, after `targets`, is present only with `--given`.
+- `given`, after `targets`, is present only with `--given`, and `observed`,
+  after it, only with `--observed`.
 - `findings` holds the graph-wide findings, then each target's. Every finding
   has `id`, `diagnostic`, `nodes`, `relations`, `value` (a number, or `null` for
   a structural finding), `details` and a one-line `message`, as in the
@@ -422,9 +438,9 @@ the unanchored variables, which do not fail the check.
 A `zero-probability` error means the evidence of a query has probability zero,
 so the query has no answer. The command works out the cause:
 
-- If the query fails without its `--given` and `--set` values, or none were
-  passed, the cause is the graph: no world satisfies every `exclusive` relation,
-  which needs a base or strength of exactly 0 or 1.
+- If the query fails without its `--given`, `--observed` and `--set` values, or
+  none were passed, the cause is the graph: no world satisfies every `exclusive`
+  relation, which needs a base or strength of exactly 0 or 1.
 - Otherwise the passed values are the cause, and everything the error names is
   established by running the same command, of the same kind, with that one thing
   changed. The message names a flag when the query fails with that flag's values
@@ -468,8 +484,9 @@ The search for remedies to a `zero-probability` error runs under the same limit.
 
 Values that contradict each other outright are refused before any inference, as
 an `invalid-argument`: two equivalent nodes given different values by `--given`
-(in `query` or `diagnose`) or by `--set`, and a `--given` value that contradicts
-the `--set` value of the same proposition.
+(in `query` or `diagnose`) or by `--set`, a `--given` or `--observed` value that
+contradicts the `--set` value of the same proposition, and a `--given` value
+that contradicts an `--observed` one.
 
 Without `--json`, a success prints a short summary and a failure prints
 `error: …` and `hint: …` on stderr. Malformed command lines, such as a missing
