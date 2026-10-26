@@ -172,11 +172,14 @@ lower case, except after common abbreviations and initials (a single capital
 after "Table" or "Sec.", as in "Table I.", is a label, and one after a numeral,
 as in "0.6 K.", is a unit: both do end the sentence, so an initial after a year,
 as in "In 2019 A. Smith", ends one too), and at paragraph breaks, headings, list
-items and displays. The words before the punctuation are separated at ties and
-spacing commands as well as spaces, and a piece of inline math is one word, so
-`J.\,R.` stays together and `0.6\,K.` and `$0.6$ K.` end a sentence. A display
-inside a sentence ends it, so the text after the display starts a new node.
-Without the `ingest` extra the command fails with `missing-extra`.
+items and displays. The words before the punctuation are separated at
+whitespace, a tie `~`, a line break `\\` and the spacing commands `\,`, `\;`,
+`\:`, `\!`, `\thinspace`, `\enspace`, `\nobreakspace`, `\space`, `\quad`,
+`\qquad` and a control space (a backslash before a space), not at other spacing
+such as `\hspace{1em}`, and a piece of inline math is one word, so `J.\,R.`
+stays together and `0.6\,K.` and `$0.6$ K.` end a sentence. A display inside a
+sentence ends it, so the text after the display starts a new node. Without the
+`ingest` extra the command fails with `missing-extra`.
 
 ### PDF
 
