@@ -51,7 +51,7 @@ _ABBREVIATIONS = frozenset(
     }
 )
 _INITIAL = re.compile(r"[A-Z]")
-# What separates words: whitespace, a tie and LaTeX's spacing macros, as in "J.\\,R." or "0.6~K".
+# What separates words: whitespace, a tie and LaTeX's spacing macros, as in "J.\,R." or "0.6~K".
 _SPACE = re.compile(r"\s+|~|\\[ ,;:!]")
 # Words after which a single capital is a numbered label, as in "Table I.", not an initial.
 _LABELLED = frozenset({"table", "tab", "section", "sec", "appendix", "app", "chapter", "part"})
