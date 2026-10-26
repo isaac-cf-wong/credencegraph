@@ -51,8 +51,8 @@ _ABBREVIATIONS = frozenset(
     }
 )
 _INITIAL = re.compile(r"[A-Z]")
-# What separates words: whitespace, a tie and LaTeX's spacing macros, as in "J.\,R." or "0.6~K".
-_SPACE = re.compile(r"\s+|~|\\[ ,;:!]")
+# What separates words: whitespace, a tie and LaTeX's spacing commands, short or named, as in "J.\,R." or "0.6~K".
+_SPACE = re.compile(r"\s+|~|\\[ ,;:!]|\\(?:thinspace|enspace|nobreakspace|space|quad|qquad)(?![A-Za-z])")
 # Words after which a single capital is a numbered label, as in "Table I.", not an initial.
 _LABELLED = frozenset({"table", "tab", "section", "sec", "appendix", "app", "chapter", "part"})
 # A word that is one piece of inline math, $...$ or \(...\); the group that matched holds its content.

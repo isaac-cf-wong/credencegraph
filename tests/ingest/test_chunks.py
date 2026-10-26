@@ -30,6 +30,12 @@ from credencegraph.ingest import ends_sentence
         (r"as told by J.\,R.~R", "Tolkien, the tale", False),
         (r"the mean drift is 0.6\,K", "Lee reports", True),
         (r"listed in Table\,I", "The records", True),
+        (r"the mean drift is 0.6\quad K", "Lee reports", True),
+        (r"the mean drift is 0.6\thinspace K", "Lee reports", True),
+        (r"a supply of 5\enspace V", "The current", True),
+        (r"a gain of 2\nobreakspace A", "The loss", True),
+        (r"as told by J.\thinspace R.\enspace R", "Tolkien, the tale", False),
+        (r"the mean drift is 0.6\quadrant K", "Lee reports", False),
     ],
 )
 def test_ends_sentence(before, after, expected):
