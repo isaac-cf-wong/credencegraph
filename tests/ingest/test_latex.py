@@ -338,3 +338,37 @@ def test_ids_are_padded_to_the_width_needed():
     graph, _ = chunks_to_graph(chunks, "doc")
     assert list(graph.nodes)[:5] == ["s-01", "s-02", "s-03", "e-1", "s-04"]
     assert list(graph.nodes)[-1] == "s-10"
+
+
+@pytest.mark.parametrize(
+    "quantity", ["0.6 K", "$0.6$ K", r"\(0.6\) K", r"0.6\,K", "0.6~K", r"$1.2 \times 10^{-3}$ K", r"$1\,000$ K"]
+)
+def test_a_unit_after_a_numeral_ends_the_sentence(tmp_path, quantity):
+    """Test that "0.6 K." ends a sentence however the numeral and its unit are written, but "C. Lee" does not."""
+    body = f"Over 30 days the mean drift is {quantity}. Lee reports drifts of this size, as C. Lee found."
+    assert texts(read(tmp_path, body)) == [
+        f"Over 30 days the mean drift is {quantity}.",
+        "Lee reports drifts of this size, as C. Lee found.",
+    ]
+
+
+def test_a_label_after_a_spacing_macro_ends_the_sentence(tmp_path):
+    r"""Test that the word before a capital is read across a macro, so "Table\,I." is a label."""
+    assert texts(read(tmp_path, r"Listed in Table\,I. The records follow.")) == [
+        r"Listed in Table\,I.",
+        "The records follow.",
+    ]
+
+
+@pytest.mark.parametrize("name", ["J. R. R. Tolkien", r"J.\,R.\,R. Tolkien", "J.~R.~R. Tolkien"])
+def test_initials_separated_by_spacing_macros_do_not_end_the_sentence(tmp_path, name):
+    """Test that initials stay in their sentence however the space between them is written."""
+    assert texts(read(tmp_path, f"As {name} wrote, it holds. Next.")) == [f"As {name} wrote, it holds.", "Next."]
+
+
+def test_an_escaped_dollar_does_not_open_inline_math(tmp_path):
+    r"""Test that the currency sign of "\$5" does not pair with the math of "$0.6$ K."."""
+    assert texts(read(tmp_path, r"The price is \$5; the drift is $0.6$ K. Lee reports.")) == [
+        r"The price is \$5; the drift is $0.6$ K.",
+        "Lee reports.",
+    ]
