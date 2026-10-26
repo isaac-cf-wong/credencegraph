@@ -51,6 +51,8 @@ _ABBREVIATIONS = frozenset(
     }
 )
 _INITIAL = re.compile(r"[A-Z]")
+# What separates words: whitespace, a tie and LaTeX's spacing macros, as in "J.\\,R." or "0.6~K".
+_SPACE = re.compile(r"\s+|~|\\[ ,;:!]")
 # Words after which a single capital is a numbered label, as in "Table I.", not an initial.
 _LABELLED = frozenset({"table", "tab", "section", "sec", "appendix", "app", "chapter", "part"})
 # A word that is one piece of inline math, $...$ or \(...\); the group that matched holds its content.
@@ -96,7 +98,7 @@ def ends_sentence(before: str, after: str) -> bool:
     Returns:
         Whether the sentence ends there.
     """
-    words = before.split()
+    words = [word for word in _SPACE.split(before) if word]
     if words:
         stem = words[-1].lstrip("(\"'`~")
         if stem.lower() in _ABBREVIATIONS:

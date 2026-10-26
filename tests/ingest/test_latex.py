@@ -356,3 +356,9 @@ def test_a_label_after_a_spacing_macro_ends_the_sentence(tmp_path):
         r"Listed in Table\,I.",
         "The records follow.",
     ]
+
+
+@pytest.mark.parametrize("name", ["J. R. R. Tolkien", r"J.\,R.\,R. Tolkien", "J.~R.~R. Tolkien"])
+def test_initials_separated_by_spacing_macros_do_not_end_the_sentence(tmp_path, name):
+    """Test that initials stay in their sentence however the space between them is written."""
+    assert texts(read(tmp_path, f"As {name} wrote, it holds. Next.")) == [f"As {name} wrote, it holds.", "Next."]

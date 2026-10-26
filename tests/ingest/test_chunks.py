@@ -27,6 +27,9 @@ from credencegraph.ingest import ends_sentence
         (r"the mean drift is \(0.6\) K", "Lee reports", True),
         ("reported by C", "Lee, the drift", False),
         ("as told by J. R. R", "Tolkien, the tale", False),
+        (r"as told by J.\,R.~R", "Tolkien, the tale", False),
+        (r"the mean drift is 0.6\,K", "Lee reports", True),
+        (r"listed in Table\,I", "The records", True),
     ],
 )
 def test_ends_sentence(before, after, expected):
