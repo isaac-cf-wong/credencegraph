@@ -194,8 +194,8 @@ PDF carries; it does not recover LaTeX from typeset mathematics.
   page's dominant one (such as a margin stamp) is not read into any node.
 - The title, the author and affiliation lines below it, and headings (short
   lines in a bold font) are not nodes. Sentences are split as for LaTeX, with
-  words separated at spaces only, since the text holds no TeX markup, and end at
-  headings and displays.
+  words separated at whitespace alone, since the text holds no TeX markup, and
+  end at headings and displays.
 - A display is the lines between two lines of running text. It is an equation
   node if it holds an equation number, `(n)` or `(na)` set flush right in its
   column, or mathematics; numbers are found by position, so a number that comes
