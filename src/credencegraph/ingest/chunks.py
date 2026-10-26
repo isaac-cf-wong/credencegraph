@@ -92,42 +92,47 @@ class Chunk:
     key: str | None = None
 
 
-def ends_sentence(before: str, after: str) -> bool:
-    """Tell whether a full stop, question mark or exclamation mark followed by whitespace ends a sentence.
+def ends_sentence(before: str, after: str, *, latex: bool = False) -> bool:
+    r"""Tell whether a full stop, question mark or exclamation mark followed by whitespace ends a sentence.
 
     It does unless the word before it is a common abbreviation or an initial, or the text after it
     starts in lower case. A single capital after a word such as "Table" or "Sec." is a label, as in
     "Table I.", and one after a numeral is a unit, as in "0.6 K."; both end the sentence. An initial
     after a year, as in "In 2019 A. Smith showed", is therefore read as a unit and ends one too.
 
+    Plain text, such as a PDF's, is split into words at whitespace. LaTeX source is split at ties and
+    spacing commands too, and a piece of inline math is one word, so ``J.\,R.``, ``0.6\,K.`` and
+    ``$0.6$ K.`` read as they print.
+
     Args:
         before: The text up to the punctuation.
         after: The text after the punctuation and the whitespace that follows it.
+        latex: Whether the text is LaTeX source.
 
     Returns:
         Whether the sentence ends there.
     """
-    words = _words(before)
+    words = _words(before) if latex else before.split()
     if words:
         stem = words[-1].lstrip("(\"'`~")
         if stem.lower() in _ABBREVIATIONS:
             return False
-        if _INITIAL.fullmatch(stem) and not (len(words) > 1 and _labels_or_counts(words[-2])):
+        if _INITIAL.fullmatch(stem) and not (len(words) > 1 and _labels_or_counts(words[-2], latex=latex)):
             return False
     return not (after and after[0].islower())
 
 
 def _words(text: str) -> list[str]:
-    """Split a text into words at ``_SPACE``, keeping each piece of inline math within one word."""
+    """Split LaTeX source into words at ``_SPACE``, keeping each piece of inline math within one word."""
     return [match["word"] for match in _WORD.finditer(text) if match["word"]]
 
 
-def _labels_or_counts(word: str) -> bool:
+def _labels_or_counts(word: str, *, latex: bool) -> bool:
     r"""Tell whether a single capital after this word is a label or a unit rather than an initial.
 
-    A numeral counts written plain or as inline math, ``$0.6$`` or ``\(0.6\)``.
+    A numeral counts written plain or, in LaTeX source, as inline math, ``$0.6$`` or ``\(0.6\)``.
     """
-    math = _INLINE_MATH.fullmatch(word)
+    math = _INLINE_MATH.fullmatch(word) if latex else None
     numeral = (math[1] or math[2]) if math else word
     return word.rstrip(".").lower() in _LABELLED or _NUMERAL.fullmatch(numeral) is not None
 

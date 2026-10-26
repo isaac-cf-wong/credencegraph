@@ -500,7 +500,7 @@ class _Reader:
                 continue
             # The sentence so far, with the math and macros read before this run of text.
             before = "".join(self.sentence.pieces) + text[start : match.start()]
-            if not ends_sentence(before, text[match.end() :]):
+            if not ends_sentence(before, text[match.end() :], latex=True):
                 continue
             stop = match.end("end")
             self.sentence.add(text[start:stop], node.pos + offset + start, node.pos + offset + stop)
