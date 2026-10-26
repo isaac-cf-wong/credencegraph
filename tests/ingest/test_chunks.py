@@ -23,6 +23,8 @@ from credencegraph.ingest import ends_sentence
         ("a force of -3 N", "It acts", True),
         ("a gain of +2.5 A", "The loss", True),
         ("a load of 1,000 W", "The load", True),
+        ("the mean drift is $0.6$ K", "Lee reports", True),
+        (r"the mean drift is \(0.6\) K", "Lee reports", True),
         ("reported by C", "Lee, the drift", False),
         ("as told by J. R. R", "Tolkien, the tale", False),
     ],

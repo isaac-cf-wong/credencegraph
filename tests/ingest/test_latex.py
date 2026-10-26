@@ -340,10 +340,19 @@ def test_ids_are_padded_to_the_width_needed():
     assert list(graph.nodes)[-1] == "s-10"
 
 
-def test_a_unit_after_a_numeral_ends_the_sentence(tmp_path):
-    """Test that "0.6 K." ends a sentence, while the initial of "C. Lee" does not."""
-    body = "Over 30 days the mean drift is 0.6 K. Lee reports drifts of this size, as C. Lee found."
+@pytest.mark.parametrize("quantity", ["0.6 K", "$0.6$ K", r"\(0.6\) K", r"0.6\,K", "0.6~K"])
+def test_a_unit_after_a_numeral_ends_the_sentence(tmp_path, quantity):
+    """Test that "0.6 K." ends a sentence however the numeral and its unit are written, but "C. Lee" does not."""
+    body = f"Over 30 days the mean drift is {quantity}. Lee reports drifts of this size, as C. Lee found."
     assert texts(read(tmp_path, body)) == [
-        "Over 30 days the mean drift is 0.6 K.",
+        f"Over 30 days the mean drift is {quantity}.",
         "Lee reports drifts of this size, as C. Lee found.",
+    ]
+
+
+def test_a_label_after_a_spacing_macro_ends_the_sentence(tmp_path):
+    r"""Test that the word before a capital is read across a macro, so "Table\,I." is a label."""
+    assert texts(read(tmp_path, r"Listed in Table\,I. The records follow.")) == [
+        r"Listed in Table\,I.",
+        "The records follow.",
     ]

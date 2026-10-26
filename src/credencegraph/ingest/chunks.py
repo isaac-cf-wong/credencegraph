@@ -53,6 +53,8 @@ _ABBREVIATIONS = frozenset(
 _INITIAL = re.compile(r"[A-Z]")
 # Words after which a single capital is a numbered label, as in "Table I.", not an initial.
 _LABELLED = frozenset({"table", "tab", "section", "sec", "appendix", "app", "chapter", "part"})
+# A word that is one piece of inline math, $...$ or \(...\); the group that matched holds its content.
+_INLINE_MATH = re.compile(r"\$([^$]+)\$|\\\((.+)\\\)")
 
 # The id prefix of each unit. Sentences, footnotes and captions share one numbering.
 _PREFIXES = {SENTENCE: "s", FOOTNOTE: "s", CAPTION: "s", EQUATION: "e", REFERENCE: "r"}
@@ -105,8 +107,13 @@ def ends_sentence(before: str, after: str) -> bool:
 
 
 def _labels_or_counts(word: str) -> bool:
-    """Tell whether a single capital after this word is a label or a unit rather than an initial."""
-    return word.rstrip(".").lower() in _LABELLED or _NUMERAL.fullmatch(word) is not None
+    r"""Tell whether a single capital after this word is a label or a unit rather than an initial.
+
+    A numeral counts written plain or as inline math, ``$0.6$`` or ``\(0.6\)``.
+    """
+    math = _INLINE_MATH.fullmatch(word)
+    numeral = (math[1] or math[2]) if math else word
+    return word.rstrip(".").lower() in _LABELLED or _NUMERAL.fullmatch(numeral) is not None
 
 
 def _ids(chunks: list[Chunk]) -> list[str]:

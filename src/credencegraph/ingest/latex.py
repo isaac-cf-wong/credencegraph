@@ -498,7 +498,9 @@ class _Reader:
                 self.end_sentence()
                 start = match.end()
                 continue
-            if not ends_sentence(text[: match.start()], text[match.end() :]):
+            # The sentence so far, with the math and macros read before this run of text.
+            before = "".join(self.sentence.pieces) + text[start : match.start()]
+            if not ends_sentence(before, text[match.end() :]):
                 continue
             stop = match.end("end")
             self.sentence.add(text[start:stop], node.pos + offset + start, node.pos + offset + stop)
