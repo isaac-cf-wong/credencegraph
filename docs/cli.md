@@ -172,9 +172,11 @@ lower case, except after common abbreviations and initials (a single capital
 after "Table" or "Sec.", as in "Table I.", is a label, and one after a numeral,
 as in "0.6 K.", is a unit: both do end the sentence, so an initial after a year,
 as in "In 2019 A. Smith", ends one too), and at paragraph breaks, headings, list
-items and displays. A display inside a sentence ends it, so the text after the
-display starts a new node. Without the `ingest` extra the command fails with
-`missing-extra`.
+items and displays. The words before the punctuation are separated at ties and
+spacing commands as well as spaces, and a piece of inline math is one word, so
+`J.\,R.` stays together and `0.6\,K.` and `$0.6$ K.` end a sentence. A display
+inside a sentence ends it, so the text after the display starts a new node.
+Without the `ingest` extra the command fails with `missing-extra`.
 
 ### PDF
 
@@ -191,8 +193,9 @@ PDF carries; it does not recover LaTeX from typeset mathematics.
   share their baseline with nothing else in it. Text at an angle other than the
   page's dominant one (such as a margin stamp) is not read into any node.
 - The title, the author and affiliation lines below it, and headings (short
-  lines in a bold font) are not nodes. Sentences are split as for LaTeX, and end
-  at headings and displays.
+  lines in a bold font) are not nodes. Sentences are split as for LaTeX, with
+  words separated at spaces only, since the text holds no TeX markup, and end at
+  headings and displays.
 - A display is the lines between two lines of running text. It is an equation
   node if it holds an equation number, `(n)` or `(na)` set flush right in its
   column, or mathematics; numbers are found by position, so a number that comes
