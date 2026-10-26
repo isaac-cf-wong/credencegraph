@@ -29,6 +29,8 @@ from credencegraph.ingest import ends_sentence
         (r"a load of $1\,000$ W", "The load", True),
         (r"a rate of \(1.2 \times 10^{-3}\) K", "Lee reports", True),
         (r"a value of $x + 1$ K", "Lee reports", False),
+        (r"the price is \$5; the drift is $0.6$ K", "Lee reports", True),
+        (r"we report about$0.6$ K", "Lee reports", False),
         ("reported by C", "Lee, the drift", False),
         ("as told by J. R. R", "Tolkien, the tale", False),
         (r"as told by J.\,R.~R", "Tolkien, the tale", False),

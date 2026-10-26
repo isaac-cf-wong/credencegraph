@@ -364,3 +364,11 @@ def test_a_label_after_a_spacing_macro_ends_the_sentence(tmp_path):
 def test_initials_separated_by_spacing_macros_do_not_end_the_sentence(tmp_path, name):
     """Test that initials stay in their sentence however the space between them is written."""
     assert texts(read(tmp_path, f"As {name} wrote, it holds. Next.")) == [f"As {name} wrote, it holds.", "Next."]
+
+
+def test_an_escaped_dollar_does_not_open_inline_math(tmp_path):
+    r"""Test that the currency sign of "\$5" does not pair with the math of "$0.6$ K."."""
+    assert texts(read(tmp_path, r"The price is \$5; the drift is $0.6$ K. Lee reports.")) == [
+        r"The price is \$5; the drift is $0.6$ K.",
+        "Lee reports.",
+    ]
