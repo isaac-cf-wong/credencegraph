@@ -51,16 +51,21 @@ _ABBREVIATIONS = frozenset(
     }
 )
 _INITIAL = re.compile(r"[A-Z]")
-# What separates words: whitespace, a tie and LaTeX's spacing commands, short or named, as in "J.\,R." or "0.6~K".
-_SPACE = re.compile(r"\s+|~|\\[ ,;:!]|\\(?:thinspace|enspace|nobreakspace|space|quad|qquad)(?![A-Za-z])")
+# What separates words: whitespace, a tie, a line break \\ and LaTeX's spacing commands, short or named, as in
+# "J.\,R." or "0.6~K".
+_SPACE = re.compile(r"\s+|~|\\\\|\\[ ,;:!]|\\(?:thinspace|enspace|nobreakspace|space|quad|qquad)(?![A-Za-z])")
 # Words after which a single capital is a numbered label, as in "Table I.", not an initial.
 _LABELLED = frozenset({"table", "tab", "section", "sec", "appendix", "app", "chapter", "part"})
 # A word that is one piece of inline math, $...$ or \(...\); the group that matched holds its content.
 _INLINE_MATH = re.compile(r"\$([^$]+)\$|\\\((.+)\\\)")
-# A separator, or a word as the group ``word``: a run of inline math and characters other than a separator,
-# so that math is one word however it is spaced inside, as in $1\,000$, and stays part of the word it is
-# written against. An escaped \$ is a dollar sign, not a delimiter.
-_WORD = re.compile(rf"{_SPACE.pattern}|(?P<word>(?:(?<!\\)\$[^$]+(?<!\\)\$|\\\(.+?\\\)|(?!{_SPACE.pattern})\S)+)")
+# A separator, or a word as the group ``word``: a run of inline math, escaped characters such as \$ and
+# other characters that are not a separator. Math is one word however it is spaced inside, as in $1\,000$,
+# and stays part of the word it is written against. The content of \(...\) holds no \( or \), so an
+# opener without a closer is not searched for one again from each later opener.
+_WORD = re.compile(
+    rf"{_SPACE.pattern}"
+    rf"|(?P<word>(?:\$[^$]+\$|\\\((?:(?!\\[()]).)+\\\)|(?!{_SPACE.pattern})(?:\\.|\S))+)"
+)
 
 # The id prefix of each unit. Sentences, footnotes and captions share one numbering.
 _PREFIXES = {SENTENCE: "s", FOOTNOTE: "s", CAPTION: "s", EQUATION: "e", REFERENCE: "r"}

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from credencegraph.ingest import ends_sentence
@@ -31,6 +33,8 @@ from credencegraph.ingest import ends_sentence
         (r"a value of $x + 1$ K", "Lee reports", False),
         (r"the price is \$5; the drift is $0.6$ K", "Lee reports", True),
         (r"we report about$0.6$ K", "Lee reports", False),
+        (r"the value is \\$0.6$ K", "Lee reports", True),
+        (r"the price is \\\$5 and the drift $0.6$ K", "Lee reports", True),
         ("reported by C", "Lee, the drift", False),
         ("as told by J. R. R", "Tolkien, the tale", False),
         (r"as told by J.\,R.~R", "Tolkien, the tale", False),
@@ -51,3 +55,10 @@ def test_ends_sentence(before, after, expected):
     "0.6 K."; both end the sentence, where a capital after a name's other parts is an initial.
     """
     assert ends_sentence(before, after) is expected
+
+
+def test_ends_sentence_reads_unclosed_math_openers_in_linear_time():
+    """Test that a text of many unclosed inline-math openers is read at once, not rescanned per opener."""
+    started = time.perf_counter()
+    assert ends_sentence("\\(" * 100_000 + " 0.6 K", "Lee reports") is True
+    assert time.perf_counter() - started < 5
