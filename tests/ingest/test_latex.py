@@ -338,3 +338,12 @@ def test_ids_are_padded_to_the_width_needed():
     graph, _ = chunks_to_graph(chunks, "doc")
     assert list(graph.nodes)[:5] == ["s-01", "s-02", "s-03", "e-1", "s-04"]
     assert list(graph.nodes)[-1] == "s-10"
+
+
+def test_a_unit_after_a_numeral_ends_the_sentence(tmp_path):
+    """Test that "0.6 K." ends a sentence, while the initial of "C. Lee" does not."""
+    body = "Over 30 days the mean drift is 0.6 K. Lee reports drifts of this size, as C. Lee found."
+    assert texts(read(tmp_path, body)) == [
+        "Over 30 days the mean drift is 0.6 K.",
+        "Lee reports drifts of this size, as C. Lee found.",
+    ]

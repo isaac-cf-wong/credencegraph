@@ -169,10 +169,12 @@ a source with neither fails with `invalid-argument`. The JSON output names the
 
 Sentences are split at `.`, `?` or `!` followed by a space and a word not in
 lower case, except after common abbreviations and initials (a single capital
-after "Table" or "Sec.", as in "Table I.", is a label and does end the
-sentence), and at paragraph breaks, headings, list items and displays. A display
-inside a sentence ends it, so the text after the display starts a new node.
-Without the `ingest` extra the command fails with `missing-extra`.
+after "Table" or "Sec.", as in "Table I.", is a label, and one after a numeral,
+as in "0.6 K.", is a unit: both do end the sentence, so an initial after a year,
+as in "In 2019 A. Smith", ends one too), and at paragraph breaks, headings, list
+items and displays. A display inside a sentence ends it, so the text after the
+display starts a new node. Without the `ingest` extra the command fails with
+`missing-extra`.
 
 ### PDF
 

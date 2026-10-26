@@ -15,6 +15,7 @@ from credencegraph.core.anchor import SourceAnchor
 from credencegraph.core.graph import Graph
 from credencegraph.core.node import Node
 from credencegraph.core.relation import Relation
+from credencegraph.rubric.faithfulness import _NUMERAL
 from credencegraph.rubric.model import DOCUMENT, UNASSIGNED
 from credencegraph.rubric.text import normalise_text, text_digest
 from credencegraph.rubric.validate import CITES
@@ -83,7 +84,8 @@ def ends_sentence(before: str, after: str) -> bool:
 
     It does unless the word before it is a common abbreviation or an initial, or the text after it
     starts in lower case. A single capital after a word such as "Table" or "Sec." is a label, as in
-    "Table I.", and ends the sentence.
+    "Table I.", and one after a numeral is a unit, as in "0.6 K."; both end the sentence. An initial
+    after a year, as in "In 2019 A. Smith showed", is therefore read as a unit and ends one too.
 
     Args:
         before: The text up to the punctuation.
@@ -97,9 +99,14 @@ def ends_sentence(before: str, after: str) -> bool:
         stem = words[-1].lstrip("(\"'`~")
         if stem.lower() in _ABBREVIATIONS:
             return False
-        if _INITIAL.fullmatch(stem) and not (len(words) > 1 and words[-2].rstrip(".").lower() in _LABELLED):
+        if _INITIAL.fullmatch(stem) and not (len(words) > 1 and _labels_or_counts(words[-2])):
             return False
     return not (after and after[0].islower())
+
+
+def _labels_or_counts(word: str) -> bool:
+    """Tell whether a single capital after this word is a label or a unit rather than an initial."""
+    return word.rstrip(".").lower() in _LABELLED or _NUMERAL.fullmatch(word) is not None
 
 
 def _ids(chunks: list[Chunk]) -> list[str]:

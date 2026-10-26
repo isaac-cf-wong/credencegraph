@@ -18,8 +18,19 @@ from credencegraph.ingest import ends_sentence
         ("listed in Table I", "The records", True),
         ("listed in Sec. V", "The records", True),
         ("written by A. N", "Author", False),
+        ("the mean drift is 0.6 K", "Lee reports", True),
+        ("a supply of 5 V", "The current", True),
+        ("a force of -3 N", "It acts", True),
+        ("a gain of +2.5 A", "The loss", True),
+        ("a load of 1,000 W", "The load", True),
+        ("reported by C", "Lee, the drift", False),
+        ("as told by J. R. R", "Tolkien, the tale", False),
     ],
 )
 def test_ends_sentence(before, after, expected):
-    """Test abbreviations, initials, a lower-case continuation, and a capital that labels a table or section."""
+    """Test abbreviations, initials, a lower-case continuation, and a capital that labels or is a unit.
+
+    A single capital after a word such as "Table" labels it, and one after a numeral is a unit, as in
+    "0.6 K."; both end the sentence, where a capital after a name's other parts is an initial.
+    """
     assert ends_sentence(before, after) is expected
