@@ -57,6 +57,8 @@ _SPACE = re.compile(r"\s+|~|\\[ ,;:!]|\\(?:thinspace|enspace|nobreakspace|space|
 _LABELLED = frozenset({"table", "tab", "section", "sec", "appendix", "app", "chapter", "part"})
 # A word that is one piece of inline math, $...$ or \(...\); the group that matched holds its content.
 _INLINE_MATH = re.compile(r"\$([^$]+)\$|\\\((.+)\\\)")
+# Inline math within a text, kept whole as one word however it is spaced inside, as in $1\,000$.
+_MATH_WORD = re.compile(r"(\$[^$]+\$|\\\(.+?\\\))")
 
 # The id prefix of each unit. Sentences, footnotes and captions share one numbering.
 _PREFIXES = {SENTENCE: "s", FOOTNOTE: "s", CAPTION: "s", EQUATION: "e", REFERENCE: "r"}
@@ -98,7 +100,7 @@ def ends_sentence(before: str, after: str) -> bool:
     Returns:
         Whether the sentence ends there.
     """
-    words = [word for word in _SPACE.split(before) if word]
+    words = _words(before)
     if words:
         stem = words[-1].lstrip("(\"'`~")
         if stem.lower() in _ABBREVIATIONS:
@@ -106,6 +108,14 @@ def ends_sentence(before: str, after: str) -> bool:
         if _INITIAL.fullmatch(stem) and not (len(words) > 1 and _labels_or_counts(words[-2])):
             return False
     return not (after and after[0].islower())
+
+
+def _words(text: str) -> list[str]:
+    """Split a text into words at ``_SPACE``, keeping each piece of inline math one word."""
+    words: list[str] = []
+    for i, part in enumerate(_MATH_WORD.split(text)):
+        words.extend([part] if i % 2 else [word for word in _SPACE.split(part) if word])
+    return words
 
 
 def _labels_or_counts(word: str) -> bool:
