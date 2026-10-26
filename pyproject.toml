@@ -34,7 +34,7 @@ dev = [
   "pylatexenc>=2.11",
   "pypdfium2>=5.14.0",
 ]
-docs = ["zensical>=0.0.71", "mkdocstrings-python>=2.0.10"]
+docs = ["zensical>=0.0.72", "mkdocstrings-python>=2.0.10"]
 build = ["hatch>=1.18.1"]
 release = ["git-cliff>=2.14.2"]
 
