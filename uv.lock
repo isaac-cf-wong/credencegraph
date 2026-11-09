@@ -281,7 +281,7 @@ provides-extras = ["ingest"]
 [package.metadata.requires-dev]
 build = [{ name = "hatch", specifier = ">=1.18.2" }]
 dev = [
-    { name = "hypothesis", specifier = ">=6.170.14" },
+    { name = "hypothesis", specifier = ">=6.170.15" },
     { name = "jsonschema", specifier = ">=4.26.0" },
     { name = "mutmut", specifier = ">=3.8.1" },
     { name = "prek", specifier = ">=0.5.10" },
