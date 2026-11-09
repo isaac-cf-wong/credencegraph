@@ -30,7 +30,7 @@ dev = [
   "mutmut>=3.8.1",
   "zizmor>=1.32.0",
   "jsonschema>=4.26.0",
-  "hypothesis>=6.170.14",
+  "hypothesis>=6.170.15",
   "pylatexenc>=2.11",
   "pypdfium2>=5.14.0",
 ]
