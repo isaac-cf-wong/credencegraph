@@ -32,7 +32,7 @@ dev = [
   "jsonschema>=4.26.0",
   "hypothesis>=6.170.15",
   "pylatexenc>=2.11",
-  "pypdfium2>=5.15.0",
+  "pypdfium2>=5.15.2",
 ]
 docs = ["zensical>=0.1.0", "mkdocstrings-python>=2.0.10"]
 build = ["hatch>=1.18.2"]
