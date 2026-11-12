@@ -286,7 +286,7 @@ dev = [
     { name = "mutmut", specifier = ">=3.8.1" },
     { name = "prek", specifier = ">=0.5.10" },
     { name = "pylatexenc", specifier = ">=2.11" },
-    { name = "pypdfium2", specifier = ">=5.15.0" },
+    { name = "pypdfium2", specifier = ">=5.15.2" },
     { name = "pytest", specifier = ">=9.2.0" },
     { name = "pytest-cov", specifier = ">=7.1.0" },
     { name = "pytest-github-actions-annotate-failures", specifier = ">=0.4.2" },
