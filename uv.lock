@@ -290,7 +290,7 @@ provides-extras = ["ingest"]
 [package.metadata.requires-dev]
 build = [{ name = "hatch", specifier = ">=1.18.2" }]
 dev = [
-    { name = "hypothesis", specifier = ">=6.170.16" },
+    { name = "hypothesis", specifier = ">=6.170.17" },
     { name = "jsonschema", specifier = ">=4.26.0" },
     { name = "mutmut", specifier = ">=3.8.1" },
     { name = "prek", specifier = ">=0.5.11" },
@@ -305,7 +305,7 @@ dev = [
 ]
 docs = [
     { name = "mkdocstrings-python", specifier = ">=2.0.11" },
-    { name = "zensical", specifier = ">=0.1.2" },
+    { name = "zensical", specifier = ">=0.1.3" },
 ]
 release = [{ name = "git-cliff", specifier = ">=2.14.2" }]
 
